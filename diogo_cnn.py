@@ -439,6 +439,7 @@ def main_function( name_nn, name_loss_file, name_loss_graph, name_console ):
     
     #Validation and training set on flight level
     validation_size = 0.2 
+    #TEST
     
     #Get the name of all units    
     units = np.unique(all_data_shortened.loc[:, "unit"])
