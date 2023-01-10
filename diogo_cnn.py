@@ -441,6 +441,7 @@ def main_function( name_nn, name_loss_file, name_loss_graph, name_console ):
     validation_size = 0.2 
     #TEST
     #TEST_two
+    #Test_three
     
     #Get the name of all units    
     units = np.unique(all_data_shortened.loc[:, "unit"])
