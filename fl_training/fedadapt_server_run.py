@@ -23,7 +23,7 @@ LR = config.LR
 offload = args.offload
 
 logger.info('Preparing Server.')
-server = Server(0, '0.0.0.0', config.SERVER_PORT, 'VGG5', offload, LR)
+server = Server('0.0.0.0', config.SERVER_PORT, 'VGG5', offload, LR)
 
 if offload:
     state_dim = 2*config.G
@@ -42,8 +42,8 @@ for r in range(config.R):
     logger.info('==> Round {:} Start'.format(r))
 
     s_time = time.time()
-    state, bandwidth = server.train(client_ips=config.CLIENTS_LIST)
-    aggregrated_model = server.aggregate(config.CLIENTS_LIST)
+    bandwidth = server.train()
+    aggregrated_model = server.aggregate()
     e_time = time.time()
 
     # Recording each round training time, bandwidth and test accuracy

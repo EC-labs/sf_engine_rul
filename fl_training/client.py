@@ -21,8 +21,8 @@ torch.manual_seed(0)
 class Client(Communicator):
 
 
-    def __init__(self, index, ip_address, server_addr, server_port, datalen, model_name, split_layer):
-        super(Client, self).__init__(index, ip_address)
+    def __init__(self, server_addr, server_port, datalen, model_name, split_layer):
+        super(Client, self).__init__()
         self.datalen = datalen
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model_name = model_name
@@ -51,18 +51,6 @@ class Client(Communicator):
         logger.debug('Initialize Finished')
 
     def train(self, trainloader):
-        # Network speed test
-        network_time_start = time.time()
-        msg = ['MSG_TEST_NETWORK', self.uninet.cpu().state_dict()]
-        self.send_msg(self.sock, msg)
-        msg = self.recv_msg(self.sock,'MSG_TEST_NETWORK')[1]
-        network_time_end = time.time()
-        network_speed = (2 * config.model_size * 8) / (network_time_end - network_time_start) #Mbit/s 
-
-        logger.info('Network speed is {:}'.format(network_speed))
-        msg = ['MSG_TEST_NETWORK', self.ip, network_speed]
-        self.send_msg(self.sock, msg)
-
         # Training start
         s_time_total = time.time()
         time_training_c = 0

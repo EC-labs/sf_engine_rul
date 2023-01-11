@@ -17,14 +17,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--offload', help='FedAdapt or classic FL mode', type=utils.str2bool, default=False)
 args = parser.parse_args()
 
-ip_address = config.HOST2IP[socket.gethostname()]
-index = config.CLIENTS_CONFIG[ip_address]
-datalen = config.N / config.K
+index = 0
+datalen = 10
 split_layer = config.split_layer[index]
 LR = config.LR
 
 logger.info('Preparing Client')
-client = Client(index, ip_address, config.SERVER_ADDR, config.SERVER_PORT, datalen, 'VGG5', split_layer)
+client = Client(config.SERVER_ADDR, config.SERVER_PORT, datalen, 'VGG5', split_layer)
 
 offload = args.offload
 client.initialize(split_layer, offload, True, LR)

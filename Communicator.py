@@ -9,8 +9,7 @@ logger = logging.getLogger(__name__)
 class Communicator(object):
 
 
-	def __init__(self, index, ip_address):
-		self.index = index
+	def __init__(self, ip_address=None):
 		self.ip = ip_address
 		self.sock = socket.socket()
 

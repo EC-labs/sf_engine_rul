@@ -30,14 +30,13 @@ class Server(Communicator):
 
     def __init__(
         self, 
-        index: int, 
         ip_address: str, 
         server_port: int, 
         model_name: str, 
         offload: bool, 
         LR: float, 
     ):
-        super(Server, self).__init__(index, ip_address)
+        super(Server, self).__init__(ip_address)
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.port = server_port
         self.model_name = model_name
@@ -108,8 +107,7 @@ class Server(Communicator):
             self.nets = {}
             self.optimizers= {}
 
-            for i in range(len(split_layers)):
-                client_ip = config.CLIENTS_LIST[i]
+            for i, client_ip in enumerate(self.client_socks):
                 if split_layers[i] < len(config.model_cfg[self.model_name])-1:
                     self.nets[client_ip] = utils.get_model(
                         'Server', self.model_name, split_layers[i], self.device, config.model_cfg
@@ -132,52 +130,39 @@ class Server(Communicator):
         for i in self.client_socks:
             self.send_msg(self.client_socks[i], msg)
 
-    def train(self, client_ips):
+    def train(self):
         # Network test
         self.net_threads = {}
-        for i in range(len(client_ips)):
-            self.net_threads[client_ips[i]] = threading.Thread(target=self._thread_network_testing, args=(client_ips[i],))
-            self.net_threads[client_ips[i]].start()
-
-        for i in range(len(client_ips)):
-            self.net_threads[client_ips[i]].join()
-
         self.bandwidth = {}
-        for s in self.client_socks:
-            msg = self.recv_msg(self.client_socks[s], 'MSG_TEST_NETWORK')
-            self.bandwidth[msg[1]] = msg[2]
 
         # Training start
         self.threads = {}
-        for i in range(len(client_ips)):
+        for i, client_ip in enumerate(self.client_socks):
             if config.split_layer[i] == (config.model_len -1):
-                self.threads[client_ips[i]] = threading.Thread(target=self._thread_training_no_offloading, args=(client_ips[i],))
-                logger.info(str(client_ips[i]) + ' no offloading training start')
-                self.threads[client_ips[i]].start()
+                self.threads[client_ip] = threading.Thread(
+                    target=self._thread_training_no_offloading,
+                    args=(client_ip,)
+                )
+                logger.info(client_ip + ' no offloading training start')
+                self.threads[client_ip].start()
             else:
-                logger.info(str(client_ips[i]))
-                self.threads[client_ips[i]] = threading.Thread(target=self._thread_training_offloading, args=(client_ips[i],))
-                logger.info(str(client_ips[i]) + ' offloading training start')
-                self.threads[client_ips[i]].start()
+                logger.info(client_ip)
+                self.threads[client_ip] = threading.Thread(
+                    target=self._thread_training_offloading, 
+                    args=(client_ip,)
+                )
+                logger.info(client_ip + ' offloading training start')
+                self.threads[client_ip].start()
 
-        for i in range(len(client_ips)):
-            self.threads[client_ips[i]].join()
+        for client_ip in self.client_socks:
+            self.threads[client_ip].join()
 
         self.ttpi = {} # Training time per iteration
         for s in self.client_socks:
             msg = self.recv_msg(self.client_socks[s], 'MSG_TRAINING_TIME_PER_ITERATION')
             self.ttpi[msg[1]] = msg[2]
 
-        self.group_labels = self.clustering(self.ttpi, self.bandwidth)
-        self.offloading = self.get_offloading(self.split_layers)
-        state = self.concat_norm(self.ttpi, self.offloading)
-
-        return state, self.bandwidth
-
-    def _thread_network_testing(self, client_ip):
-        msg = self.recv_msg(self.client_socks[client_ip], 'MSG_TEST_NETWORK')
-        msg = ['MSG_TEST_NETWORK', self.uninet.cpu().state_dict()]
-        self.send_msg(self.client_socks[client_ip], msg)
+        return self.bandwidth
 
     def _thread_training_no_offloading(self, client_ip):
         pass
@@ -203,16 +188,16 @@ class Server(Communicator):
         logger.info(str(client_ip) + ' offloading training end')
         return 'Finish'
 
-    def aggregate(self, client_ips):
+    def aggregate(self):
         w_local_list =[]
-        for i in range(len(client_ips)):
-            msg = self.recv_msg(self.client_socks[client_ips[i]], 'MSG_LOCAL_WEIGHTS_CLIENT_TO_SERVER')
-            if config.split_layer[i] != (config.model_len -1):
+        for i, client_ip in enumerate(self.client_socks):
+            msg = self.recv_msg(self.client_socks[client_ip], 'MSG_LOCAL_WEIGHTS_CLIENT_TO_SERVER')
+            if config.split_layer[i] != (config.model_len-1):
                 w_local = (
                     utils.concat_weights(
                         self.uninet.state_dict(), # weights 
                         msg[1], # cweights 
-                        self.nets[client_ips[i]].state_dict() # sweights
+                        self.nets[client_ip].state_dict() # sweights
                     ), 
                     config.N / config.K
                 )
@@ -250,97 +235,5 @@ class Server(Communicator):
 
         return acc
 
-    def clustering(self, state, bandwidth):
-        #sort bandwidth in config.CLIENTS_LIST order
-        bandwidth_order =[]
-        for c in config.CLIENTS_LIST:
-            bandwidth_order.append(bandwidth[c])
-
-        labels = [0,0,1,0,0] # Previous clustering results in RL
-        for i in range(len(bandwidth_order)):
-            if bandwidth_order[i] < 5:
-                labels[i] = 2 # If network speed is limited under 5Mbps, we assign the device into group 2
-
-        return labels
-
-    def adaptive_offload(self, agent, state):
-        action = agent.exploit(state)
-        action = self.expand_actions(action, config.CLIENTS_LIST)
-
-        config.split_layer = self.action_to_layer(action)
-        logger.info('Next Round OPs: ' + str(config.split_layer))
-
-        msg = ['SPLIT_LAYERS',config.split_layer]
-        self.scatter(msg)
-        return config.split_layer
-
-    def expand_actions(self, actions, clients_list): # Expanding group actions to each device
-        full_actions = []
-
-        for i in range(len(clients_list)):
-            full_actions.append(actions[self.group_labels[i]])
-
-        return full_actions
-
-    def action_to_layer(self, action): # Expanding group actions to each device
-        #first caculate cumulated flops
-        model_state_flops = []
-        cumulated_flops = 0
-
-        for l in config.model_cfg[config.model_name]:
-            cumulated_flops += l[5]
-            model_state_flops.append(cumulated_flops)
-
-        model_flops_list = np.array(model_state_flops)
-        model_flops_list = model_flops_list / cumulated_flops
-
-        split_layer = []
-        for v in action:
-            idx = np.where(np.abs(model_flops_list - v) == np.abs(model_flops_list - v).min()) 
-            idx = idx[0][-1]
-            if idx >= 5: # all FC layers combine to one option
-                idx = 6
-            split_layer.append(idx)
-        return split_layer
-
-    def concat_norm(self, ttpi, offloading):
-        ttpi_order = []
-        offloading_order =[]
-        for c in config.CLIENTS_LIST:
-            ttpi_order.append(ttpi[c])
-            offloading_order.append(offloading[c])
-
-        group_max_index = [0 for i in range(config.G)]
-        group_max_value = [0 for i in range(config.G)]
-        for i in range(len(config.CLIENTS_LIST)):
-            label = self.group_labels[i]
-            if ttpi_order[i] >= group_max_value[label]:
-                group_max_value[label] = ttpi_order[i]
-                group_max_index[label] = i
-
-        ttpi_order = np.array(ttpi_order)[np.array(group_max_index)]
-        offloading_order = np.array(offloading_order)[np.array(group_max_index)]
-        state = np.append(ttpi_order, offloading_order)
-        return state
-
-    def get_offloading(self, split_layer):
-        offloading = {}
-        workload = 0
-
-        assert len(split_layer) == len(config.CLIENTS_LIST)
-        for i in range(len(config.CLIENTS_LIST)):
-            for l in range(len(config.model_cfg[config.model_name])):
-                if l <= split_layer[i]:
-                    workload += config.model_cfg[config.model_name][l][5]
-            offloading[config.CLIENTS_LIST[i]] = workload / config.total_flops
-            workload = 0
-
-        return offloading
-
-
     def reinitialize(self, split_layers, offload, first, LR):
         self.initialize(split_layers, offload, first, LR)
-
-    def scatter(self, msg):
-        for i in self.client_socks:
-            self.send_msg(self.client_socks[i], msg)

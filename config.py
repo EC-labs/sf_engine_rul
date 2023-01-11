@@ -7,28 +7,11 @@ SERVER_PORT = 51000
 K = 5 # Number of devices
 G = 3 # Number of groups
 
-# Unique clients order
-HOST2IP = {
-    'pi41': '192.168.0.14', 
-    'pi42': '192.168.0.15', 
-    'jetson-desktop': '192.168.0.25', 
-    'pi31': '192.168.0.36', 
-    'pi32': '192.168.0.29'
-}
-CLIENTS_CONFIG = {
-    '192.168.0.14': 0, 
-    '192.168.0.15': 1, 
-    '192.168.0.25': 2, 
-    '192.168.0.36': 3, 
-    '192.168.0.29': 4,
-}
-CLIENTS_LIST= ['192.168.0.14', '192.168.0.15', '192.168.0.25', '192.168.0.36', '192.168.0.29'] 
-
 # Dataset configration
 dataset_name = 'CIFAR10'
 home = '/usr/src/app'
 dataset_path = '/usr/src/app/data'
-N = 50000 # data length
+N = 50 # data length
 
 
 # Model configration
@@ -55,7 +38,7 @@ model_len = 7
 # FL training configration
 R = 100 # FL rounds
 LR = 0.01 # Learning rate
-B = 100 # Batch size
+B = 1 # Batch size
 
 
 # RL training configration
