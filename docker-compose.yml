@@ -1,0 +1,67 @@
+version: '3.8'
+
+x-client-common: 
+  &client-common
+  build: . 
+  depends_on: 
+    - server
+  command: "fl_training.fedadapt_client_run"
+  volumes:
+    - ./data:/usr/src/app/data
+    - ./results:/usr/src/app/results
+  networks: 
+    - fedadapt_network
+
+services: 
+
+  server: 
+    container_name: fedadapt_server
+    build: . 
+    command: "fl_training.fedadapt_server_run"
+    networks: 
+      - fedadapt_network
+    volumes:
+      - ./data:/usr/src/app/data
+      - ./results:/usr/src/app/results
+
+
+  client_pi41: 
+    << : *client-common
+    hostname: pi41
+    networks:
+      fedadapt_network:
+        ipv4_address: 192.168.0.14
+
+  client_pi42: 
+    << : *client-common
+    hostname: "pi42"
+    networks:
+      fedadapt_network:
+        ipv4_address: 192.168.0.15
+
+  client_jetson-desktop: 
+    << : *client-common
+    hostname: "jetson-desktop"
+    networks:
+      fedadapt_network:
+        ipv4_address: 192.168.0.25
+
+  client_pi31: 
+    << : *client-common
+    hostname: "pi31"
+    networks:
+      fedadapt_network:
+        ipv4_address: 192.168.0.36
+
+  client_pi32: 
+    << : *client-common
+    hostname: "pi32"
+    networks:
+      fedadapt_network:
+        ipv4_address: 192.168.0.29
+
+
+networks:
+  fedadapt_network: 
+    external: true
+
