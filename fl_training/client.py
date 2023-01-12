@@ -29,6 +29,7 @@ class Client(Communicator):
         self.uninet = utils.get_model('Unit', self.model_name, config.model_len-1, self.device, config.model_cfg)
 
         logger.info('Connecting to Server.')
+        print(server_addr)
         self.sock.connect((server_addr,server_port))
 
     def initialize(self, split_layer, offload, first, LR):

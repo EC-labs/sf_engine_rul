@@ -36,6 +36,7 @@ class Server(Communicator):
         offload: bool, 
         LR: float, 
     ):
+
         super(Server, self).__init__(ip_address)
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.port = server_port

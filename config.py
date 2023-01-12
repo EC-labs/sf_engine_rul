@@ -1,10 +1,11 @@
 import sys
+import os
 
 # Network configration
 SERVER_ADDR= 'fedadapt_server'
 SERVER_PORT = 51000
 
-K = 5 # Number of devices
+K = int(os.getenv("NCLIENTS", "1")) # Number of devices
 G = 3 # Number of groups
 
 # Dataset configration
