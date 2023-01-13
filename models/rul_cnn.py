@@ -52,7 +52,7 @@ learning_rate = 0.001 #0.01 #0.001?
 
 def read_in_data(frequency, X_v_to_keep, X_s_to_keep, training_data=True, keep_all_data=True): #True if you want the training data, False if you want the testing data 
     # Set-up - Define file location
-    filename = 'C:\\Users\\ingeborgdepate\\New C-MAPPS\\N-CMAPSS_DS02-006.h5'
+    filename = "data/turbofan_simulation/dataset_2/data_set/N-CMAPSS_DS02-006.h5"
     
     # Load data
     with h5py.File(filename, 'r') as hdf:
@@ -219,60 +219,36 @@ class sensor_data(Dataset):
                 DataFrame in the initialized Dataset. 
 
         """
-        self.all_data = all_data #The data
-        self.all_variables_x = all_variables_x  #The variables for x
-        self.considered_length = considered_length #The length of each sample
-        
-        #storing all samples at once gives a memory problem. Instead, we define for each sample number the engine,
-        #the flight, and the beginning and ending time from which we take the measurements in __getitem__ 
+        self.all_data = all_data
+        self.all_variables_x = all_variables_x
+        self.considered_length = considered_length
+
         self.sample_index = {} 
-        number_sample = 0     
-        
-        #All sample numbers belonging to a specific engine and flight. Necessary for the testing of the dataset
         self.unit_flight_all_samples = {} 
-        
-        #we make a dictionary with for each unit, the total number of flights
-        #We use this to get the RUL (i.e., the label) in the getitem part 
         self.unit_length = {} 
+        number_sample = 0     
 
-        # for all units
         for unit in np.unique(all_data["unit"]):           
-
-            data_unit = all_data.loc[all_data["unit"] == unit] #The data of this unit 
-            
-            #Get the number of flights
+            data_unit = all_data.loc[all_data["unit"] == unit]
             number_flights = len(np.unique(data_unit["cycle"]))
-            
-            self.unit_length[unit] = number_flights #For getting the RUL later on
-            
-            #Get the flights we consider for this unit (training or validation)
+            self.unit_length[unit] = number_flights
             flights_unit = considered_flights[unit]
-                        
-            # for all flights
+
             for flight in np.unique(data_unit["cycle"]):     
-                
-                if flight not in flights_unit: #For the training vs validation 
+                if flight not in flights_unit:
                     continue
-                
-                all_samples = [] #All samples belonging to this engine and flight. Necessary for the testing part             
-
-                data_flight = data_unit.loc[data_unit["cycle"] == flight] #Data of the flight 
+                all_samples = []
+                data_flight = data_unit.loc[data_unit["cycle"] == flight]
                 data_flight.reset_index(inplace=True)
+                length_of_flight = data_flight.shape[0]
 
-                length_of_flight = data_flight.shape[0]  
-                
-                start = 0  # Initial index
-                while start <= (length_of_flight - self.considered_length): #Loop over the flight
-                    # get the final index
-                    end = start + self.considered_length  # end is excluded. Get the end point of the sample
-                    all_info = (unit, flight, start, end) #The engine, flight, start time and end time of the sample 
-                    self.sample_index[number_sample] = all_info #Save! THis is what we use to make the sample in __getitem__
-                    
-                    all_samples.append(number_sample) #This is again for the testing part 
-                    
-                    number_sample = number_sample + 1 #update the numer of samples 
-                   
-                    # update start
+                start = 0
+                while start <= (length_of_flight - self.considered_length):
+                    end = start + self.considered_length
+                    all_info = (unit, flight, start, end)
+                    self.sample_index[number_sample] = all_info
+                    all_samples.append(number_sample)
+                    number_sample = number_sample + 1
                     start = start + stepsize_sample
                 
                 self.unit_flight_all_samples[(unit, flight)] = all_samples 
@@ -284,7 +260,6 @@ class sensor_data(Dataset):
         of the dataset.
         """
 
-        #NUmber of samples in the dataset
         return len(self.sample_index)
     
     def get_all_samples(self, sample):
@@ -299,37 +274,31 @@ class sensor_data(Dataset):
         specified by `idx`. 
         """
 
-        #Get the sample belonging to the index :) 
-        
-        #First, get all the info of the sample
         info = self.sample_index.get(idx)
-        unit = info[0] #The engine 
-        flight = info[1] #The flight
-        start = info[2] #The starting time of the sample
-        end = info[3] #The ending time of the sample 
+        unit = info[0]
+        flight = info[1]
+        start = info[2]
+        end = info[3]
 
-        #Select the relevant data 
         data_considered = self.all_data.loc[
             (self.all_data["unit"] == unit) 
             & (self.all_data["cycle"] == flight)
         ]
         sample = data_considered.iloc[start:end] 
         
-        #Get the sensor measurements and operating conditions 
         sample_x = sample[self.all_variables_x]
-        sample_x = sample_x.to_numpy() #Otherwise, we get some weird type error 
-        sample_x = np.float32(sample_x) #Otherwise, we get some weird type error 
+        sample_x = sample_x.to_numpy()
+        sample_x = np.float32(sample_x)
         
-        #Caltulate the RUL (the label) 
-        number_flight = self.unit_length.get(unit) #Number of flights of the unit 
-        RUL = number_flight - flight #The RUL! 
-        RUL = np.float32(RUL) #Otherwise, we get some weird type error 
-      
+        number_flight = self.unit_length.get(unit)
+        RUL = number_flight - flight
+        RUL = np.float32(RUL)
         if RUL < 0:
             print("error: the RUL is " , RUL, " with flight " , flight , " and number flight " , number_flight)
             raise ValueError("The RUL is negative!") 
 
         return sample_x, RUL
+
     
 def train_one_epoch(neural_network, loss_function, optimizer, data_loader, in_training):
     #This functions trains the neural network for one epoch :)  
@@ -364,6 +333,7 @@ def train_one_epoch(neural_network, loss_function, optimizer, data_loader, in_tr
             optimizer.step()
            
     return running_loss
+
 
 class neural_network(nn.Module):
      #Our neural network :) 
