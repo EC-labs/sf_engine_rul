@@ -10,6 +10,10 @@ RUN pip install -r additional_requirements.txt
 
 ENV ENGINE=1
 
-COPY . .
+COPY ./fl_training ./fl_training
+COPY ./models ./models
+COPY ./*.py ./
+
+VOLUME ["/usr/src/app/data", "/usr/src/app/results"]
 
 ENTRYPOINT ["python3", "-u", "-m"]
