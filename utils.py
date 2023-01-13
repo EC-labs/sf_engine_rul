@@ -18,7 +18,6 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Subset
 
-
 import pickle, struct, socket
 from vgg import *
 from config import *
@@ -124,8 +123,6 @@ def concat_weights(weights, cweights, sweights):
 
     return concat_dict
 
-
-
 def zero_init(net):
     for m in net.modules():
         if isinstance(m, nn.Conv2d):
@@ -155,9 +152,6 @@ def fed_avg(zero_model, w_local_list, totoal_data_size):
                 zero_model[k] += (w[0][k] * beta)
 
     return zero_model
-
-def norm_list(alist):    
-    return [l / sum(alist) for l in alist]
 
 def str2bool(v):
     if isinstance(v, bool):

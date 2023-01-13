@@ -6,12 +6,12 @@ import time
 import numpy as np
 import sys
 
-sys.path.append('../')
 import config
 import utils
 from Communicator import *
-
 import logging
+
+
 logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
