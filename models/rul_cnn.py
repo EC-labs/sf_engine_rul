@@ -1,21 +1,21 @@
 #####################################################
 #-----------------------Packages--------------------#
 #####################################################
-from torch.utils.data import Dataset, random_split, DataLoader
-from torch import nn
 import torch
-
-from pandas import DataFrame
-
 import numpy as np
 import pandas as pd
 import time
 import h5py
-import  math
+import math
 import copy 
+import os
+
+from typing import List, Dict
+from torch.utils.data import Dataset, random_split, DataLoader
+from pandas import DataFrame
+from torch import nn
  
-import sys
-import matplotlib.pyplot  as plt 
+import config
 
 #####################################################
 #-----------------------Parameters--------------------#
@@ -50,7 +50,7 @@ learning_rate = 0.001 #0.01 #0.001?
 #-----------------------Data------------------------#
 #####################################################
 
-def read_in_data(frequency,X_v_to_keep, X_s_to_keep, training_data = True, keep_all_data = True ): #True if you want the training data, False if you want the testing data 
+def read_in_data(frequency, X_v_to_keep, X_s_to_keep, training_data=True, keep_all_data=True): #True if you want the training data, False if you want the testing data 
     # Set-up - Define file location
     filename = 'C:\\Users\\ingeborgdepate\\New C-MAPPS\\N-CMAPSS_DS02-006.h5'
     
@@ -178,9 +178,47 @@ def normalization(data, minima, maxima, skip = ["cycle", "unit" , "hs"]):
    
 
 class sensor_data(Dataset):
-    #THis is the sensor data class, where we make our samples! 
+    """Turbofan Engine Simulation dataset class. 
+
+    Due to the size of the simulation, this class reduces the sampling
+    granularity, and augments the resulting data. The input data is considered
+    to be a fixed size sample of a flight for a unit, and the output is the RUL
+    (in number of flights). 
+
+    """
     
-    def __init__(self, all_data,  stepsize_sample, all_variables_x, considered_length, considered_flights):
+
+    def __init__(
+        self, 
+        all_data: pd.DataFrame, 
+        stepsize_sample: int, 
+        all_variables_x: List[str], 
+        considered_length: int, 
+        considered_flights: Dict[int, List[int]],
+    ):
+        """Initialize the TurbofanSimulation Dataset class. 
+
+        Args:
+            all_data: Dataframe with the flight samples at the
+                rate of 1 sample/second
+            stepsize_sample: size of the step between 2 consecutive sample
+                streams. E.g., if a sample stream has a length of 50 samples,
+                and the stepsize is of 10 samples, the first stream would
+                consider the samples 0-49, and the second stream, the samples
+                10-59.
+            all_variables_x: A list of sensor identifiers (virtual +
+                physical) which are to be considered. Having performed a
+                statistical analysis as to which sensors correlate to the RUL,
+                this parameter specifies the list of these sensors.
+            considered_length: The number of samples to be taken into
+                consideration in a single sample stream. E.g., if this value is
+                50, then the first stream of a given flight will hold the first
+                50 samples (0-49).
+            considered_flights: Dictionary holding for each unit, the list of
+                flights which are to be taken into consideration from the whole
+                DataFrame in the initialized Dataset. 
+
+        """
         self.all_data = all_data #The data
         self.all_variables_x = all_variables_x  #The variables for x
         self.considered_length = considered_length #The length of each sample
@@ -240,15 +278,27 @@ class sensor_data(Dataset):
                 self.unit_flight_all_samples[(unit, flight)] = all_samples 
 
     def __len__(self):
+        """Length of the initialized Dataset.
+
+        This dunder function is called by the Dataloader class to get the size
+        of the dataset.
+        """
+
         #NUmber of samples in the dataset
-        return len(self.sample_index.keys())
+        return len(self.sample_index)
     
     def get_all_samples(self, sample):
-        #Sample is a (engine, flight) tuple
-        #Get all sample numbers belonging to a engine and flight, necessary for testing 
+        """Get all measurement streams for a unit, flight tuple."""
+
         return self.unit_flight_all_samples.get(sample)
    
     def __getitem__(self, idx):
+        """Get a single entry from the dataset. 
+
+        Given `idx`, this function should return the entry at the position
+        specified by `idx`. 
+        """
+
         #Get the sample belonging to the index :) 
         
         #First, get all the info of the sample
@@ -259,7 +309,10 @@ class sensor_data(Dataset):
         end = info[3] #The ending time of the sample 
 
         #Select the relevant data 
-        data_considered = self.all_data.loc[(self.all_data["unit"] == unit) & (self.all_data["cycle"] == flight)]
+        data_considered = self.all_data.loc[
+            (self.all_data["unit"] == unit) 
+            & (self.all_data["cycle"] == flight)
+        ]
         sample = data_considered.iloc[start:end] 
         
         #Get the sensor measurements and operating conditions 
@@ -397,31 +450,21 @@ class neural_network(nn.Module):
          return predicted
 
 
-def main_function( name_nn, name_loss_file, name_loss_graph, name_console ):
-    #The big function for training our neural network!    
-    
-    
-    computer_adress = "C:\\Users\\ingeborgdepate\\fed_learning\\"  
-    
+def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
     #set the seeds (maybe we should go for one or zero haha)
     #Nice to get the same results all the time 
     np.random.seed(7042018)
     torch.manual_seed(7_04_2018) 
-    
-    #--------------------------------------------------------------------------------------------------#
-    #------------------------------------------Get the data--------------------------------------------#
-    #--------------------------------------------------------------------------------------------------#
-      
+
     #Read in the training data 
     all_data_shortened, all_fc = read_in_data(frequency, X_v_to_keep, X_s_to_keep, True, True)   
-    all_data_shortened = all_data_shortened.drop(columns = [ "hs"])    
+    all_data_shortened = all_data_shortened.drop(columns = ["hs"])    
     
     #Split the data over the clients 
     number_clients = 6 
     engine_names = np.unique(all_data_shortened.loc[:, "unit"])
-    ENGINE = 2.0 
-    
- 
+    ENGINE = int(os.getenv("ENGINE", "0"))
+
     #-------------------------------------------------------------------------------------------------=-------------#
     #------------------------------------------Normalize the training data ------------------------------------------#
     #-----------------------------------------------------------------------------------------------------------#
@@ -486,8 +529,8 @@ def main_function( name_nn, name_loss_file, name_loss_graph, name_console ):
     
       
     #Dataset with training and validation
-    dataset_train = sensor_data( all_data_shortened,  stepsize_sample, all_variables_x, considered_length, dict_training_flights)
-    dataset_valid = sensor_data( all_data_shortened,  stepsize_sample, all_variables_x, considered_length, dict_validation_flights)
+    dataset_train = sensor_data(all_data_shortened, stepsize_sample, all_variables_x, considered_length, dict_training_flights)
+    dataset_valid = sensor_data(all_data_shortened, stepsize_sample, all_variables_x, considered_length, dict_validation_flights)
     
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True) 
     dataloader_validation  = DataLoader(dataset_valid, batch_size = batch_size, shuffle = False)
@@ -584,151 +627,4 @@ def main_function( name_nn, name_loss_file, name_loss_graph, name_console ):
         loss_file.write(str(loss) + ',')
     loss_file.close()
     
-    #MAke a nice plot of the losses 
-    fig, ax = plt.subplots() 
-    ax.plot(all_train_losses, label = "Training loss" ) 
-    ax.plot(all_validation_losses, label = "Validation loss") 
-    ax.set_ylabel("Mean loss per sample")
-    ax.set_xlabel("Number of epochs") 
-    ax.legend() 
-    plt.tight_layout()
-    
-    
-    name_plot = computer_adress + name_loss_graph  + str(unit) + ".png"
-    plt.savefig(name_plot, dpi = 400)
-    plt.close('all') 
-        
-
-if __name__ == "__main__":
-    #Here, we test our neural network :) 
-    
-    #--------------------------------------------------------------------------------------------------#
-    #------------------------------------------Get the data--------------------------------------------#
-    #--------------------------------------------------------------------------------------------------#  
-    #Get the test data! 
-    all_data_shortened, all_fc = read_in_data(frequency, X_v_to_keep, X_s_to_keep, False, True)
-   
-    #-------------------------------------------------------------------------------------------------=-------------#
-    #------------------------------------------Normalize the data -------------------------------------------------#
-    #---------------------------------------------------------------------------------------------------------------#
-    #Get the training data to find the minimum and maximum 
-    training_data, _ = read_in_data(frequency, X_v_to_keep, X_s_to_keep, True,True)
-    minima, maxima = min_max_training(training_data)
-    
-    #Normalize the test data with the minimum and maximum of the training data 
-    all_data_shortened = normalization(all_data_shortened, minima, maxima)
-    
-    #-------------------------------------------------------------------------------------------------=-------------#
-    #------------------------------------------Hyperparameters - general ------------------------------------------#
-    #-----------------------------------------------------------------------------------------------------------#
-    all_variables_x = X_v_to_keep + X_s_to_keep + all_fc
-    
-    #This should be the same as in the training loop -> maybe not great coding to define it twich 
-    input_size = len(all_variables_x) * considered_length
-    
-    #-------------------------------------------------------------------------------------------------=-------------#
-    #------------------------------------------Make the data set with Pytorch ------------------------------------------#
-    #-----------------------------------------------------------------------------------------------------------#
-    #We use all flights and all data
-    #Get the name of all units    
-    units = np.unique(all_data_shortened.loc[:, "unit"])
-    
-    #Make a dictionary with for each unit, all flights
-    dict_test_flights = {} 
-   
-    #Loop over all units
-    for unit in units:
-        
-        #Step 1. make a list with all glight numbers
-        last_flight = int(max(all_data_shortened.loc[all_data_shortened["unit"] == unit, "cycle"])) 
-        all_flights = list(range(1, last_flight + 1, 1))
-     
-        #Step 2. Add the flights to the dictionary
-        dict_test_flights[unit] = all_flights 
-     
-    #Make the dataset
-    dataset = sensor_data(all_data_shortened, stepsize_sample, all_variables_x, considered_length, dict_test_flights)
-    length_data = dataset.__len__()    
-     
-    #--------------------------------------------------------------------------------------------------#
-    #------------------------------------------Load the Neural network--------------------------------------------#
-    #--------------------------------------------------------------------------------------------------#
-    neural = neural_network(input_size, height, number_channels, num_neurons, do = 0)
-       
-    weights = "C:\\Users\\ingeborgdepate\\fed_learning\\cnn_weights"   + ".pth"
-    neural.load_state_dict(torch.load(weights))
-
-    neural.train(False)  # equiavlent with model.eval()
-   
-    #--------------------------------------------------------------------------------------------------#
-    #------------------------------------------Predict the RULS-------------------------------------------#
-    #--------------------------------------------------------------------------------------------------#
-    #Predict the RUL for each unit and each flight 
-    MSE = 0 
-    MAE = 0 
-    points = 0 
-    
-    for unit in np.unique(all_data_shortened.loc[:, "unit"]):
-        print("\n the test unit is " , unit)
-        MSE_unit = 0 
-        MAE_unit = 0 
-        
-        last_flight = int(max(all_data_shortened.loc[all_data_shortened["unit"] == unit, "cycle"]))      
-           
-        for flight in range(1, last_flight + 1, 1):
-            
-            mean_RUL_prediction = 0 
-            
-            #Get all samples
-            all_samples = dataset.get_all_samples((unit,flight)) 
-            num_samples = len(all_samples)
-            
-            #Get the RUL prediction for each sample
-            for s in all_samples:
-                data_sample = dataset.__getitem__(s) 
-                true_RUL = data_sample[1] 
-                inp = data_sample[0]
-                inp = torch.tensor(inp)
-                with torch.no_grad():
-                    predicted = neural(inp)
-                
-                mean_RUL_prediction = mean_RUL_prediction + predicted[0][0]
-            
-            #Get the prediction and the metrics
-            mean_RUL_prediction = mean_RUL_prediction / num_samples 
-            error = mean_RUL_prediction - true_RUL 
-            MAE_unit = MAE_unit + abs(error)
-            MSE_unit = MSE_unit + error**2 
-      
-        #Update the grand total
-        MAE = MAE + MAE_unit 
-        MSE = MSE + MSE_unit 
-        points = points +( last_flight  )   
-        
-        #Get the total MSE/MAE for the unit
-        MAE_unit = MAE_unit / (last_flight )
-        MSE_unit = math.sqrt(MSE_unit/(last_flight ))         
-        print("For unit " , unit, " the MAE is " , MAE_unit, " and the RMSE is " , MSE_unit)
-       
-               
-    #Get the grand total
-    MAE = MAE / points
-    MSE = math.sqrt(MSE/points) 
-    print("In total, the MAE is " , MAE, " and the RMSE is " , MSE)
-   
-                
-                
-                
-                
-            
-            
-            
-            
-            
-            
-            
-        
-        
-    
-    
-    
+main_function("cnn_weights", "Losses", "Graph", "console")
