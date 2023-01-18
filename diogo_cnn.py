@@ -26,6 +26,7 @@ considered_length = 50 #Length of one sample.
 
 #THESE OARAMETERS PROBABLY HAVE TO CHANGE WITH A FREQUENCY OF 1 AND ALL SENSORS. 
 height = 10
+
 number_channels = 10     
 num_neurons = 100
 
@@ -37,6 +38,7 @@ frequency =  1#1 is much smallerr than I had before, so we might have to change 
 #WE CAN ALSO KEEP ALL SENSORS HERE
 X_v_to_keep =  ["W21", "W50", "SmFan", "SmLPC", "SmHPC"]  
 X_s_to_keep = ["Wf", "Nf", "T24", "T30", "T48", "T50", "P2", "P50"] 
+width = len(list[X_v_to_keep, X_s_to_keep]) #number of sensors 
 
 #Considered loss function 
 loss_function = torch.nn.MSELoss()  
@@ -192,74 +194,63 @@ class sensor_data(Dataset):
         
         #All sample numbers belonging to a specific engine and flight. Necessary for the testing of the dataset
         self.unit_flight_all_samples = {} 
+
+               
+        #Get the number of flights
+        number_flights = len(np.unique(all_data["cycle"]))
         
-        #we make a dictionary with for each unit, the total number of flights
-        #We use this to get the RUL (i.e., the label) in the getitem part 
-        self.unit_length = {} 
+        self.unit_length = number_flights #For getting the RUL later on
+        
 
-        # for all units
-        for unit in np.unique(all_data["unit"]):           
-
-            data_unit = all_data.loc[all_data["unit"] == unit] #The data of this unit 
+        # for all flights
+        for flight in np.unique(all_data["cycle"]):     
             
-            #Get the number of flights
-            number_flights = len(np.unique(data_unit["cycle"]))
+            if flight not in considered_flights: #For the training vs validation 
+                continue
             
-            self.unit_length[unit] = number_flights #For getting the RUL later on
+            all_samples = [] #All samples belonging to thisflight. Necessary for the testing part             
+
+            data_flight = all_data.loc[all_data["cycle"] == flight] #Data of the flight 
+            data_flight.reset_index(inplace=True)
+
+            length_of_flight = data_flight.shape[0]  
             
-            #Get the flights we consider for this unit (training or validation)
-            flights_unit = considered_flights[unit]
-                        
-            # for all flights
-            for flight in np.unique(data_unit["cycle"]):     
+            start = 0  # Initial index
+            while start <= (length_of_flight - self.considered_length): #Loop over the flight
+                # get the final index
+                end = start + self.considered_length  # end is excluded. Get the end point of the sample
+                all_info = (flight, start, end) #The engine, flight, start time and end time of the sample 
+                self.sample_index[number_sample] = all_info #Save! THis is what we use to make the sample in __getitem__
                 
-                if flight not in flights_unit: #For the training vs validation 
-                    continue
+                all_samples.append(number_sample) #This is again for the testing part 
                 
-                all_samples = [] #All samples belonging to this engine and flight. Necessary for the testing part             
-
-                data_flight = data_unit.loc[data_unit["cycle"] == flight] #Data of the flight 
-                data_flight.reset_index(inplace=True)
-
-                length_of_flight = data_flight.shape[0]  
-                
-                start = 0  # Initial index
-                while start <= (length_of_flight - self.considered_length): #Loop over the flight
-                    # get the final index
-                    end = start + self.considered_length  # end is excluded. Get the end point of the sample
-                    all_info = (unit, flight, start, end) #The engine, flight, start time and end time of the sample 
-                    self.sample_index[number_sample] = all_info #Save! THis is what we use to make the sample in __getitem__
-                    
-                    all_samples.append(number_sample) #This is again for the testing part 
-                    
-                    number_sample = number_sample + 1 #update the numer of samples 
-                   
-                    # update start
-                    start = start + stepsize_sample
-                
-                self.unit_flight_all_samples[(unit, flight)] = all_samples 
+                number_sample = number_sample + 1 #update the numer of samples 
+               
+                # update start
+                start = start + stepsize_sample
+            
+            self.unit_flight_all_samples[flight] = all_samples 
 
     def __len__(self):
         #NUmber of samples in the dataset
         return len(self.sample_index.keys())
     
     def get_all_samples(self, sample):
-        #Sample is a (engine, flight) tuple
-        #Get all sample numbers belonging to a engine and flight, necessary for testing 
+        #Sample is a ( int (flight)
+        #Get all sample numbers belonging to a flight, necessary for testing 
         return self.unit_flight_all_samples.get(sample)
    
     def __getitem__(self, idx):
         #Get the sample belonging to the index :) 
         
         #First, get all the info of the sample
-        info = self.sample_index.get(idx)
-        unit = info[0] #The engine 
-        flight = info[1] #The flight
-        start = info[2] #The starting time of the sample
-        end = info[3] #The ending time of the sample 
+        info = self.sample_index.get(idx)       
+        flight = info[0] #The flight
+        start = info[1] #The starting time of the sample
+        end = info[2] #The ending time of the sample 
 
         #Select the relevant data 
-        data_considered = self.all_data.loc[(self.all_data["unit"] == unit) & (self.all_data["cycle"] == flight)]
+        data_considered = self.all_data.loc[ (self.all_data["cycle"] == flight)]
         sample = data_considered.iloc[start:end] 
         
         #Get the sensor measurements and operating conditions 
@@ -268,7 +259,7 @@ class sensor_data(Dataset):
         sample_x = np.float32(sample_x) #Otherwise, we get some weird type error 
         
         #Caltulate the RUL (the label) 
-        number_flight = self.unit_length.get(unit) #Number of flights of the unit 
+        number_flight = self.unit_length #Number of flights of the unit 
         RUL = number_flight - flight #The RUL! 
         RUL = np.float32(RUL) #Otherwise, we get some weird type error 
       
@@ -315,7 +306,7 @@ def train_one_epoch(neural_network, loss_function, optimizer, data_loader, in_tr
 class neural_network(nn.Module):
      #Our neural network :) 
 
-     def __init__(self, input_size, height, number_channels, num_neurons, do = 0):
+     def __init__(self, input_size, height,width,  number_channels, num_neurons, do = 0):
          
          #WE MIGHT NEED SOME DROPOUT -> TO LOOK INTO! 
        
@@ -323,7 +314,7 @@ class neural_network(nn.Module):
         super(neural_network, self).__init__()        
         
         #(Hyper)Parameters
-        self.kernel_size = (height, 1) #height, width of the kernels 
+        self.kernel_size = (height, width) #height, width of the kernels 
         self.number_maps_first = number_channels #Number of kernels 
         self.input_size = input_size #Size of the single kernel of the last convolutional layer 
         self.num_neurons = num_neurons #Number of neurons in the fully connected layers 
@@ -439,32 +430,15 @@ def main_function( name_nn, name_loss_file, name_loss_graph, name_console ):
     
     #Validation and training set on flight level
     validation_size = 0.2 
-    #TEST
-    #TEST_two
-    #Test_three
+
+    #Select the validation flights
+    #Step 1. make a list with all glight numbers
+    last_flight = int(max(all_data_shortened_engine[ "cycle"])) 
+    all_flights = list(range(1, last_flight + 1, 1))
     
-    #Get the name of all units    
-    units = np.unique(all_data_shortened.loc[:, "unit"])
-    
-    #Make a dictionary with for each unit, all validation and training flights
-    dict_training_flights = {} 
-    dict_validation_flights = {} 
-    
-    #Loop over all units
-    for unit in units:
-        #Select the validation flights
-        
-        #Step 1. make a list with all glight numbers
-        last_flight = int(max(all_data_shortened.loc[all_data_shortened["unit"] == unit, "cycle"])) 
-        all_flights = list(range(1, last_flight + 1, 1))
-        
-        #Step 2. Select ... percent of the flights randomly
-        validation_flights = np.random.choice(np.array(all_flights), size = math.floor(validation_size * len(all_flights)), replace=False)
-        training_flights =  list(set(all_flights) - set(validation_flights)) 
-        
-        #Step 3. Add the flights to the dictionary
-        dict_training_flights[unit] = training_flights 
-        dict_validation_flights[unit] = validation_flights
+    #Step 2. Select ... percent of the flights randomly
+    validation_flights = np.random.choice(np.array(all_flights), size = math.floor(validation_size * len(all_flights)), replace=False)
+    training_flights =  list(set(all_flights) - set(validation_flights)) 
 
     #-------------------------------------------------------------------------------------------------=-------------#
     #------------------------------------------Make the training data set with Pytorch ------------------------------------------#
@@ -486,8 +460,8 @@ def main_function( name_nn, name_loss_file, name_loss_graph, name_console ):
     
       
     #Dataset with training and validation
-    dataset_train = sensor_data( all_data_shortened,  stepsize_sample, all_variables_x, considered_length, dict_training_flights)
-    dataset_valid = sensor_data( all_data_shortened,  stepsize_sample, all_variables_x, considered_length, dict_validation_flights)
+    dataset_train = sensor_data( all_data_shortened_engine,  stepsize_sample, all_variables_x, considered_length, training_flights)
+    dataset_valid = sensor_data( all_data_shortened_engine,  stepsize_sample, all_variables_x, considered_length, validation_flights)
     
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True) 
     dataloader_validation  = DataLoader(dataset_valid, batch_size = batch_size, shuffle = False)
@@ -501,7 +475,7 @@ def main_function( name_nn, name_loss_file, name_loss_graph, name_console ):
     input_size = len(all_variables_x) * considered_length
    
     #Make the neural network 
-    neural = neural_network( input_size, height, number_channels, num_neurons, do = 0)   
+    neural = neural_network( input_size, height, width, number_channels, num_neurons, do = 0)   
     
     #Names for saving the weights, the losses and everything on the console.
     nn_path = computer_adress + name_nn +  ".pth"    
