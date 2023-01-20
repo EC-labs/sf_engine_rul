@@ -1,5 +1,7 @@
 SHELL = /bin/bash
 
+SRCDIR=src
+
 NCLIENTS=1
 GROUP_LABEL=group=sf_engine_rul
 NETWORK="fedadapt_network"
@@ -12,7 +14,8 @@ COMMON_ENVIRONMENT=--env "NCLIENTS=$(NCLIENTS)"
 VOLUME_DATA=-v "$$(pwd)/data:/usr/src/app/data"
 VOLUME_RESULTS=-v "$$(pwd)/results:/usr/src/app/results"
 COMMON_FLAGS=--rm
-LOGS_DIR=logs/$(EXEC_TIME)
+BASE_LOGS=$(SRCDIR)/logs
+LOGS_DIR=$(BASE_LOGS)/$(EXEC_TIME)
 
 .PHONY: clean_resources clean_logs clean \
 				create_network create_image run
@@ -24,7 +27,7 @@ run: create_image create_network
 			$(COMMON_FLAGS) \
 			$(COMMON_ENVIRONMENT) \
 			$(CONTAINER_NETWORK) \
-			$(VOLUME_RESULTS) \
+			$(VOLUME_RESULTS) $(VOLUME_DATA) \
 			--name fedadapt_server \
 			$(IMAGE) fl_training.fedadapt_server_run 1>"$(LOGS_DIR)/server.log" 2>&1 &
 		@sleep 3
@@ -41,7 +44,7 @@ run: create_image create_network
 		done
 
 create_image: 
-		@docker build -t $(IMAGE) . 
+		@docker build -t $(IMAGE) $(SRCDIR)
 
 create_network: 
 		@[[ -z "$$( docker network ls --format "{{.Name}}" | awk '{ if($$1 == $(NETWORK)) { print $$1 } }' )"  ]] \
@@ -55,6 +58,6 @@ clean_resources:
 		   || { echo "Removing network"; docker network rm $(NETWORK); }
 	
 clean_logs:
-		[[ -d ./logs ]] && rm -r ./logs || true
+		[[ -d "$(BASE_LOGS)" ]] && rm -r "$(BASE_LOGS)" || true
 
 clean: clean_resources clean_logs

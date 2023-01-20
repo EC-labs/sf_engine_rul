@@ -1,5 +1,9 @@
 import sys
 import os
+import logging
+
+LOG_LEVEL = os.getenv("LOG_LEVEL") or logging.INFO
+logging.basicConfig(level=LOG_LEVEL)
 
 # Network configration
 SERVER_ADDR= 'fedadapt_server'
@@ -11,7 +15,7 @@ G = 3 # Number of groups
 # Dataset configration
 dataset_name = 'CIFAR10'
 home = '/usr/src/app'
-dataset_path = '/usr/src/app/data'
+dataset_path = '/usr/src/app/data/raw'
 N = 50 # data length
 
 

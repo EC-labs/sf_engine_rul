@@ -9,6 +9,8 @@ import h5py
 import math
 import copy 
 import os
+import logging
+import sys
 
 from typing import List, Dict, Tuple
 from torch.utils.data import Dataset, random_split, DataLoader
@@ -17,30 +19,50 @@ from torch import nn
  
 import config
 
-#####################################################
-#-----------------------Parameters--------------------#
-#####################################################
-#THE STEPSIZE WILL PROABBLY BE 1, BUT A LARGER NUMBER IS A LOT FASTER FOR TESTING THE CODE
-stepsize_sample = 10 #with what steps do we make our samples (1 is: from 1 to 50, from 2 to 51, etc.)
-considered_length = 50 #Length of one sample.
+logger_console = logging.getLogger(__name__)
+logger_console.propagate = False 
 
-#THESE OARAMETERS PROBABLY HAVE TO CHANGE WITH A FREQUENCY OF 1 AND ALL SENSORS. 
-height = 10
+logger_loss = logging.getLogger(f"{__name__}.loss")
+logger_loss.propagate = False 
+
+handler_stream_console = logging.StreamHandler(sys.stdout)
+handler_file_console = logging.FileHandler('logs/console.log', mode='a')
+handler_file_loss = logging.FileHandler('logs/loss.log', mode='a')
+
+handler_stream_console.setLevel(logging.INFO)
+handler_file_console.setLevel(logging.INFO)
+handler_file_loss.setLevel(logging.INFO)
+
+format_console = logging.Formatter('[%(levelname)s]: %(name)s : %(message)s')
+format_file = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+handler_stream_console.setFormatter(format_console)
+handler_file_console.setFormatter(format_file)
+handler_file_loss.setFormatter(format_file)
+
+logger_console.addHandler(handler_stream_console)
+logger_console.addHandler(handler_file_console)
+logger_loss.addHandler(handler_stream_console)
+logger_loss.addHandler(handler_file_loss)
+
+logger_console.info("=== New Execution ===")
+logger_loss.info("=== New Execution ===")
+
+stepsize_sample = 10
+considered_length = 50
+
+height = 9
 number_channels = 10     
 num_neurons = 100
-
 frequency =  1
 
-# Define which variables to keep (the ones we will consider)
-#WE CAN ALSO KEEP ALL SENSORS HERE
 X_v_to_keep =  ["W21", "W50", "SmFan", "SmLPC", "SmHPC"]  
 X_s_to_keep = ["Wf", "Nf", "T24", "T30", "T48", "T50", "P2", "P50"] 
 
-#Considered loss function 
 loss_function = torch.nn.MSELoss()  
-batch_size = 128 # 1024 
-num_epochs = 50 #?
-learning_rate = 0.001 #0.01 #0.001? 
+batch_size = 128
+num_epochs = 50
+learning_rate = 0.001
 
 def read_in_data(
     filename: str,
@@ -62,9 +84,6 @@ def read_in_data(
             flights from the dataset.
     """
 
-    # Set-up - Define file locatio
-    
-    # Load data
     with h5py.File(filename, 'r') as hdf:
         # Development set
         W_dev = np.array(hdf.get('W_dev'))             # W
@@ -92,7 +111,6 @@ def read_in_data(
     T_var = list(np.array(T_var, dtype='U20'))
     A_var = list(np.array(A_var, dtype='U20'))
 
-    # step 0. Make the real sensor measurements a dataframe
     if training_data == True:
         df_X_s = DataFrame(data=X_s_dev, columns=X_s_var)
         df_X_v = DataFrame(data=X_v_dev, columns=X_v_var)
@@ -104,69 +122,55 @@ def read_in_data(
         df_A = DataFrame(data=A_test, columns=A_var)
         df_W = DataFrame(data=W_test, columns=W_var)        
 
-    # step 0.1. Select the relevant sensor measurements
     df_X_s = df_X_s[X_s_to_keep]
     df_X_v = df_X_v[X_v_to_keep]
 
-    # Step 1. Add the unit, the flight cycle and the health status to the real sensor measurements of the training set
-    df_X_s["unit"] = df_A["unit"].values  # unit number
-    df_X_s["cycle"] = df_A["cycle"].values  # flight cycle
-    df_X_s["hs"] = df_A["hs"].values  # health state
-    #flight claess irrelevant for us,so we ignore them   
+    df_X_s["unit"] = df_A["unit"].values
+    df_X_s["cycle"] = df_A["cycle"].values
+    df_X_s["hs"] = df_A["hs"].values
 
-    # Step 2. Add the flight conditions, the virtual measurements and the real measurements together
     all_data = [df_X_s, df_X_v, df_W]
     all_data = pd.concat(all_data, axis=1)
 
-    # Step 1.1 Select only the healthy flights
-    #This was only for the autoencoder -> keep all data is standard on true  
     if keep_all_data == False:
         all_data = all_data.loc[all_data["hs"] == 1]  
      
-    #Redcue the sampling frequnce 
-    #Not for us, but I left it in, might be nice if you want to quickly test your model
     if frequency > 1:
         all_data_shortened = pd.DataFrame(columns = all_data.columns)     
-               
         for unit in np.unique(all_data["unit"]) :  
              data_unit = all_data.loc[all_data["unit"] == unit]
              for flight in np.unique(data_unit["cycle"]):              
                 data_flight = data_unit.loc[data_unit["cycle"] == flight]
                 data_flight.reset_index(inplace = True)
                                
-                means = (data_flight
+                means = (
+                    data_flight
                     .groupby(
                         np.arange(len(data_flight)) // frequency
                     )
                     .mean()
                 )
                 all_data_shortened = pd.concat([all_data_shortened, means], axis = 0)                        
-
         del all_data
         all_data_shortened = all_data_shortened.drop(columns = ["index"]) 
-
         return all_data_shortened, W_var
 
     return all_data, W_var 
     
 
 def min_max_training(training_data, skip = ["cycle", "unit" , "hs"]):
-    #This function finds the minimum and the maximum of the training data, for the normalization of the senso measurements 
     minima = {} 
     maxima = {}
     for column in training_data.columns:
         if column in skip:
             continue
-  
         minimum = training_data[[column]].min()[column]
         maximum = training_data[[column]].max()[column]
         minima[column] = minimum
         maxima[column] = maximum
-
     return minima, maxima  
 
 def normalization(data, minima, maxima, skip = ["cycle", "unit" , "hs"]):        
-    #THis function normalizes the sensor measurements before inputting them in the neural network (min-max normalization)
     for column in data.columns:
         if column in skip:
             continue        
@@ -271,6 +275,7 @@ class TurbofanSimulationDataset(Dataset):
     
     def get_all_samples(self, sample):
         """Get all measurement streams for a (unit, flight) tuple."""
+
         u, f = sample
         return range(*self.unit_flight_all_samples[u][f])
    
@@ -328,28 +333,23 @@ class EngineSimulationDataset(TurbofanSimulationDataset):
 
 def train_one_epoch(neural_network, loss_function, optimizer, data_loader, in_training):
     running_loss = 0.
-
+    num_batches = len(data_loader)
     for i, (sample_x, RUL) in enumerate(data_loader):
-        print("We are at batch " , i)     
-
+        logger_console.info(f"Batch {i}/{num_batches}")     
         if in_training == False:
             with torch.no_grad():                
                 predicted = neural_network(sample_x)
                 predicted = predicted.squeeze(1)
-                      
                 loss = loss_function(RUL, predicted)
                 running_loss = running_loss + loss.item() 
         else:
             predicted = neural_network(sample_x)
             predicted = predicted.squeeze(1)
-             
             loss = loss_function(RUL, predicted)
             running_loss = running_loss + loss.item() 
-      
             optimizer.zero_grad()            
             loss.backward()                
             optimizer.step()
-
     return running_loss
 
 
@@ -446,7 +446,7 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
     torch.manual_seed(7_04_2018) 
 
     all_data_shortened, all_fc = read_in_data(
-        "data/turbofan_simulation/dataset_2/data_set/N-CMAPSS_DS02-006.h5", 1, X_v_to_keep, X_s_to_keep, True, True
+        "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5", 1, X_v_to_keep, X_s_to_keep, True, True
     )   
     all_data_shortened = all_data_shortened.drop(columns = ["hs"])    
     
@@ -478,15 +478,11 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True) 
     dataloader_validation  = DataLoader(dataset_valid, batch_size = batch_size, shuffle = False)
     
-    print("There are " , len(dataloader_train), " batches in the training dataloader") 
-    
     input_size = len(all_variables_x) * considered_length
    
     neural = neural_network(input_size, height, number_channels, num_neurons, do = 0)   
     
     nn_path = "trained/" + name_nn +  ".pth"    
-    loss_path = "logs/" + name_loss_file + ".txt" 
-    console_path = "logs/" + name_console  + ".txt"
     
     optimizer = torch.optim.Adam(neural.parameters(), lr=learning_rate)
     
@@ -498,13 +494,8 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
     for epoch in range(0, num_epochs, 1):
 
         start_time_epochs = time.time() 
-        print("We're at epoch " , epoch) 
-        
-        console_file = open(console_path, 'a')
-        console_file.write('\n')
-        console_file.write('We are at epoch ' + str(epoch))        
-        console_file.close()
-        
+        logger_console.info(f"Epoch {epoch}/{num_epochs}")
+
         neural.train(True)       
         loss_train = train_one_epoch(
             neural, loss_function, optimizer, dataloader_train, in_training=True
@@ -516,43 +507,19 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
             neural, loss_function, optimizer, dataloader_validation, in_training=False
         )
         all_validation_losses.append(loss_validation)
-               
+
         if (best_validation_loss == None) or (loss_validation < best_validation_loss):
             best_validation_loss = loss_validation 
-            print("we update the parameters, the best validation loss is " , best_validation_loss)
-            
-            console_file = open(console_path, 'a')
-            console_file.write('\n')
-            console_file.write("we update the parameters, the best validation loss is "  + str(best_validation_loss))       
-            console_file.close()
-            
+            logger_console.info(f"Update parameters. "
+                        f"Best validation loss: {best_validation_loss}")
             torch.save(copy.deepcopy(neural.state_dict()), nn_path )                   
 
-            
         time_it_took =  time.time() - start_time_epochs
-        print("this took " , time_it_took, " seconds") 
-        
-        #Write the info away
-        console_file = open(console_path, 'a')
-        console_file.write('\n')
-        console_file.write("this took " + str(time_it_took) +  " seconds")   
-        console_file.close()
-        
-    #Write the losses away
-    loss_file = open(loss_path, 'w')
-    loss_file.write('\n')
-    loss_file.write('Training loss') 
-    loss_file.write('\n')
-    loss_file.write("[")
-    for loss in all_train_losses:
-        loss_file.write(str(loss) + ',')
-        
-    loss_file.write('\n')
-    loss_file.write('Validation loss') 
-    loss_file.write('\n')
-    loss_file.write("[")
-    for loss in all_validation_losses:
-        loss_file.write(str(loss) + ',')
-    loss_file.close()
+        logger_console.info(f"Epoch duration: {time_it_took}") 
+
+    logger_loss.info('Training loss') 
+    logger_loss.info(all_train_losses)
+    logger_loss.info('Validation loss') 
+    logger_loss.info(all_validation_losses)
     
 main_function("cnn_weights", "Losses", "Graph", "console")

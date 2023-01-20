@@ -9,6 +9,7 @@ COPY ./additional_requirements.txt ./
 RUN pip install -r additional_requirements.txt
 
 ENV ENGINE=2
+ENV LOG_LEVEL=INFO
 
 COPY ./fl_training ./fl_training
 COPY ./models ./models
