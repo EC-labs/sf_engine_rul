@@ -42,12 +42,6 @@ batch_size = 128 # 1024
 num_epochs = 50 #?
 learning_rate = 0.001 #0.01 #0.001? 
 
-    
-
-#####################################################
-#-----------------------Data------------------------#
-#####################################################
-
 def read_in_data(
     filename: str,
     frequency: int, 
@@ -182,7 +176,9 @@ def normalization(data, minima, maxima, skip = ["cycle", "unit" , "hs"]):
         minimum = minima.get(column)
         maximum = maxima.get(column)      
 
-        data.loc[:, column] = data.loc[:, column].apply(lambda x: ((x - minimum) / (maximum - minimum)) * (u-l) + l)       
+        data.loc[:, column] = (
+            (data.loc[:, column] - minimum)*(u-l)/(maximum-minimum)+l
+        )
     return data   
    
 
@@ -258,6 +254,11 @@ class TurbofanSimulationDataset(Dataset):
                     len(self.sample_index)-nr_streams,
                     len(self.sample_index),
                 ]
+        self.pre_processing()
+
+    def pre_processing(self): 
+        minimum, maximum = min_max_training(self.all_data)
+        self.all_data = normalization(self.all_data, minimum, maximum)
 
     def __len__(self):
         """Length of the initialized Dataset.
@@ -271,7 +272,7 @@ class TurbofanSimulationDataset(Dataset):
     def get_all_samples(self, sample):
         """Get all measurement streams for a (unit, flight) tuple."""
         u, f = sample
-        return self.unit_flight_all_samples[u][f]
+        return range(*self.unit_flight_all_samples[u][f])
    
     def __getitem__(self, idx):
         """Get a single entry from the dataset. 
@@ -279,6 +280,7 @@ class TurbofanSimulationDataset(Dataset):
         Given `idx`, this function should return the entry at the position
         specified by `idx`. 
         """
+
         start, RUL = self.sample_index[idx]
         sample_x = self.all_data.loc[
             (start):(start + self.considered_length-1), 
@@ -288,7 +290,7 @@ class TurbofanSimulationDataset(Dataset):
         sample_x = np.float32(sample_x)
         return (
             torch.from_numpy(sample_x).unsqueeze(0), 
-            RUL
+            np.float32(RUL)
         )
 
 
@@ -296,19 +298,34 @@ class EngineSimulationDataset(TurbofanSimulationDataset):
 
 
     def __init__(self, engine, *args, **kwargs): 
-        super().__init__(*args, **kwargs)
         self.engine = engine
+        super().__init__(*args, **kwargs)
+
+    def pre_processing(self): 
+        start_idx = min([start 
+            for [start, _] in self.unit_flight_all_samples[self.engine].values()
+        ])
+        end_idx = max([end 
+            for [_, end] in self.unit_flight_all_samples[self.engine].values()
+        ])
+        self.index_range = (start_idx, end_idx) 
+        self.all_data = self.all_data.loc[self.all_data["unit"] == self.engine, :].copy()
+        super().pre_processing()
+
+    def get_all_samples(self, flight): 
+        [flight_start, flight_end] = self.unit_flight_all_samples[self.engine][flight]
+        return range(
+            flight_start - self.index_range[0], 
+            flight_end - self.index_range[0],
+        )
 
     def __getitem__(self, idx): 
-        pass
+        return super().__getitem__(self.index_range[0]+idx)
 
-    def get_all_samples(self): 
-        pass
+    def __len__(self): 
+        return self.index_range[1] - self.index_range[0]
 
-    def len(self): 
-        pass
 
-    
 def train_one_epoch(neural_network, loss_function, optimizer, data_loader, in_training):
     running_loss = 0.
 
@@ -337,13 +354,9 @@ def train_one_epoch(neural_network, loss_function, optimizer, data_loader, in_tr
 
 
 class neural_network(nn.Module):
-     #Our neural network :) 
 
-     def __init__(self, input_size, height, number_channels, num_neurons, do = 0):
-         
-         #WE MIGHT NEED SOME DROPOUT -> TO LOOK INTO! 
-       
-         #some necessary initialization        
+
+    def __init__(self, input_size, height, number_channels, num_neurons, do = 0):
         super(neural_network, self).__init__()        
         
         #(Hyper)Parameters
@@ -403,44 +416,29 @@ class neural_network(nn.Module):
         ) 
         self.act_four = nn.ReLU()
         nn.init.kaiming_normal_(self.fully_connected.weight)
-        
 
-        
         #Predict tthe reul
         self.RUL_layer = nn.Linear(in_features = self.num_neurons, out_features = 1, bias = True) 
         nn.init.kaiming_normal_(self.RUL_layer.weight)
         
-     def forward(self, sample_x):  
-         #WE ONLY HAVE TO DO THIS LINE IF TRAINING! 
-         #It ensures the dimensions are correct 
-         # sample_x = sample_x.unsqueeze(1)
-         
-         ##WE ONLY HAVE TO DO THIS LINE IF TESTING
-         #IT HAS TO DO SOMETHING WITH THE DIMENSIONALITIES 
-         #(WHEN TESTING, WE USE ONE SAMPLE AT THE TIME, AND THEN SOMETHING GOES WRONG WITH THE DIMENSIONS)
-         # sample_x = sample_x.unsqueeze(0) 
-         
-         #Put the sample through the neural network 
-         x = self.conv_one(sample_x) 
-         x = self.activation_one(x) 
-         
-         x = self.conv_two(x)
-         x = self.activation_two(x) 
-         
-         x = self.conv_three(x) 
-         x = self.activation_three(x) 
-         
-         x  = self.flatten(x) 
-         
-         #IF WE DO DROPOUT
-         #x = self.dropout(x) 
-         
-         x = self.fully_connected(x) 
-         x = self.act_four(x) 
-         
-         predicted = self.RUL_layer(x) #The rul prediction 
-       
-         return predicted
+    def forward(self, sample_x):  
+        x = self.conv_one(sample_x) 
+        x = self.activation_one(x) 
+
+        x = self.conv_two(x)
+        x = self.activation_two(x) 
+
+        x = self.conv_three(x) 
+        x = self.activation_three(x) 
+
+        x  = self.flatten(x) 
+
+        x = self.fully_connected(x) 
+        x = self.act_four(x) 
+
+        predicted = self.RUL_layer(x) #The rul prediction 
+
+        return predicted
 
 
 def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
@@ -452,11 +450,7 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
     )   
     all_data_shortened = all_data_shortened.drop(columns = ["hs"])    
     
-    ENGINE = int(os.getenv("ENGINE", "0"))
-
-    minima, maxima = min_max_training(all_data_shortened.loc[all_data_shortened["unit"] == ENGINE])
-    all_data_shortened_engine = normalization(all_data_shortened.loc[all_data_shortened["unit"] == ENGINE], minima, maxima) #normalize the data 
-    
+    ENGINE = int(os.getenv("ENGINE", "2.0"))
     
     validation_size = 0.2 
     units = np.unique(all_data_shortened.loc[:, "unit"])
@@ -468,7 +462,9 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
         last_flight = int(max(all_data_shortened.loc[all_data_shortened["unit"] == unit, "cycle"])) 
         all_flights = list(range(1, last_flight + 1, 1))
         
-        validation_flights = np.random.choice(np.array(all_flights), size = math.floor(validation_size * len(all_flights)), replace=False)
+        validation_flights = np.random.choice(
+            np.array(all_flights), size=math.floor(validation_size * len(all_flights)), replace=False
+        )
         training_flights =  list(set(all_flights) - set(validation_flights)) 
         
         dict_training_flights[unit] = training_flights 
@@ -476,8 +472,8 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
 
     all_variables_x = X_v_to_keep + X_s_to_keep + all_fc
    
-    dataset_train = TurbofanSimulationDataset(all_data_shortened, stepsize_sample, all_variables_x, considered_length, dict_training_flights)
-    dataset_valid = TurbofanSimulationDataset(all_data_shortened, stepsize_sample, all_variables_x, considered_length, dict_validation_flights)
+    dataset_train = EngineSimulationDataset(ENGINE, all_data_shortened, stepsize_sample, all_variables_x, considered_length, dict_training_flights)
+    dataset_valid = EngineSimulationDataset(ENGINE, all_data_shortened, stepsize_sample, all_variables_x, considered_length, dict_validation_flights)
     
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True) 
     dataloader_validation  = DataLoader(dataset_valid, batch_size = batch_size, shuffle = False)
