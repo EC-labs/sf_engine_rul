@@ -36,17 +36,41 @@ frequency =  1#1 is much smallerr than I had before, so we might have to change 
 
 # Define which variables to keep (the ones we will consider)
 #WE CAN ALSO KEEP ALL SENSORS HERE
-X_v_to_keep =  ["W21", "W50", "SmFan", "SmLPC", "SmHPC"]  
-X_s_to_keep = ["Wf", "Nf", "T24", "T30", "T48", "T50", "P2", "P50"] 
-width = len(list[X_v_to_keep, X_s_to_keep]) #number of sensors 
+X_v_to_keep =  ['T40', 'P30', 'P45', 'W21', 'W22', 'W25', 'W31', 'W32', 'W48', 'W50', 'SmFan', 'SmLPC', 'SmHPC', 'phi'] #Everything
+X_s_to_keep = ['T24', 'T30', 'T48', 'T50', 'P15', 'P2', 'P21', 'P24', 'Ps30', 'P40','P50', 'Nf', 'Nc', 'Wf'] #Everything
+all_fc = ['alt', 'Mach', 'TRA', 'T2']
+all_variables_x = X_v_to_keep + X_s_to_keep + all_fc  #all input variables
+width = len(all_variables_x) #number of sensors, 4 from the operating conditions 
+print("the number of sensors is " , width)
+
+input_size = len(all_variables_x) * considered_length
 
 #Considered loss function 
 loss_function = torch.nn.MSELoss()  
 batch_size = 128 # 1024 
-num_epochs = 50 #?
+num_epochs = 3 #?
 learning_rate = 0.001 #0.01 #0.001? 
 
-    
+#########################################################################
+#---------------Configuration of the neural network--------------------#
+########################################################################
+#C: convolutional layer: TUple = ("C", in_channels, out_channels)
+#L: Fully connected linear layer. Tuple: ("L", in_features, out_features, do_activation)
+#F: flatten layer (no computations)
+#THe configuration (cfg) is a list with tuples, where each tuple specifices a layer
+cfg = [("C", 1, number_channels),
+       ("C", number_channels, number_channels) ,
+       ("C", number_channels, 1 ),
+       ("F") ,
+       ("L",input_size, num_neurons, True),
+       ("L", num_neurons, 1, False) ]
+
+#Federated learning parameters
+#TO DELETE - Just for testing the code on my own laptop
+split_layer =  6 
+location = "Client"
+
+
 
 #####################################################
 #-----------------------Data------------------------#
@@ -306,9 +330,10 @@ def train_one_epoch(neural_network, loss_function, optimizer, data_loader, in_tr
 class neural_network(nn.Module):
      #Our neural network :) 
 
-     def __init__(self, input_size, height,width,  number_channels, num_neurons, do = 0):
+     def __init__(self, input_size, height,width,  number_channels, num_neurons, split_layer, cfg, location, do = 0):
          
          #WE MIGHT NEED SOME DROPOUT -> TO LOOK INTO! 
+         #DECISION: NOT FOR NOW 
        
          #some necessary initialization        
         super(neural_network, self).__init__()        
@@ -320,72 +345,81 @@ class neural_network(nn.Module):
         self.num_neurons = num_neurons #Number of neurons in the fully connected layers 
         self.stride = 1 #How we move the kernels over the data 
         
-        #Make the neural network
-        #Hyperparameter: Number of layers 
-        #Convolutional layer
-        self.conv_one = nn.Conv2d(in_channels = 1, out_channels = self.number_maps_first, kernel_size = self.kernel_size, stride = self.stride, padding = "same")
-        #Activation of this layer (possible hyperparameter)
-        self.activation_one = nn.ReLU()
-        #Initialization of the weights (this is standard for the ReLU activation function) WITH DISTRIBUTED LEARNING: HAD TO LOOK INTO THIS!
-        nn.init.kaiming_normal_(self.conv_one.weight)
+        #Parameters federated learning
+        self.split_layer = split_layer #Where we split the layer 
+        self.location = location
         
-        self.conv_two = nn.Conv2d(in_channels = self.number_maps_first, out_channels = self.number_maps_first, kernel_size = self.kernel_size, stride = self.stride, padding = "same")
-        self.activation_two = nn.ReLU()
-        nn.init.kaiming_normal_(self.conv_two.weight)
+        #Make the features
+        self.features, self.denses = self._make_layers(cfg) 
         
-        self.conv_three = nn.Conv2d(in_channels = self.number_maps_first, out_channels = 1, kernel_size = self.kernel_size, stride = self.stride, padding = "same")
-        self.activation_three = nn.ReLU()
-        nn.init.kaiming_normal_(self.conv_three.weight)
+        #Initialize the weights
+        self._initialize_weights() 
         
-         #Flatten the output 
-        self.flatten = nn.Flatten() 
-        
-        #IF WE WOULD DO DROPOUT -> PROBABLY HERE
-        #MAYBE NOT NECESSARY: TOO SLOW FOR MANY ITERATIONS? 
-        #self.dropout = nn.Dropout(do)
-        
-        #Add a fully connected layer
-        self.fully_connected = nn.Linear(in_features = self.input_size, out_features = self.num_neurons, bias = True) 
-        self.act_four = nn.ReLU()
-        nn.init.kaiming_normal_(self.fully_connected.weight)
-        
-
-        
-        #Predict tthe reul
-        self.RUL_layer = nn.Linear(in_features = self.num_neurons, out_features = 1, bias = True) 
-        nn.init.kaiming_normal_(self.RUL_layer.weight)
         
      def forward(self, sample_x):  
          #WE ONLY HAVE TO DO THIS LINE IF TRAINING! 
          #It ensures the dimensions are correct 
-         #sample_x = sample_x.unsqueeze(1)
+         sample_x = sample_x.unsqueeze(1)
          
          ##WE ONLY HAVE TO DO THIS LINE IF TESTING
          #IT HAS TO DO SOMETHING WITH THE DIMENSIONALITIES 
          #(WHEN TESTING, WE USE ONE SAMPLE AT THE TIME, AND THEN SOMETHING GOES WRONG WITH THE DIMENSIONS)
-         sample_x = sample_x.unsqueeze(0) 
+         #sample_x = sample_x.unsqueeze(0) 
          
-         #Put the sample through the neural network 
-         x = self.conv_one(sample_x) 
-         x = self.activation_one(x) 
+         if len(self.features) > 0:
+             out = self.features(sample_x) 
+         else:
+             out  = sample_x
+            
+         if len(self.denses) > 0:
+             out = self.denses(out) 
+         else:
+             out = out 
+        
+         return out 
+     
+     def _make_layers(self, cfg):         
          
-         x = self.conv_two(x)
-         x = self.activation_two(x) 
+         features = [] #The convolutional layers
+         denses = [] #The fully connected layers 
          
-         x = self.conv_three(x) 
-         x = self.activation_three(x) 
+         if self.location == "Server": 
+             cfg = cfg[self.split_layer + 1: ] 
+         elif self.location == "Client": 
+             cfg = cfg[0: self.split_layer + 1] 
+         elif self.location == "Unit": #Not sure about this? 
+             pass 
          
-         x  = self.flatten(x) 
+         #Make the layers 
          
-         #IF WE DO DROPOUT
-         #x = self.dropout(x) 
+         for x in cfg: #For all considered tuples 
+             if x[0] == "C":
+                 features.extend([nn.Conv2d(in_channels = x[1], out_channels = x[2], kernel_size = self.kernel_size, stride = self.stride, padding = "same"),
+                                 nn.ReLU(inplace = True)])
+             elif x[0] == "L":
+                 if x[3] == True: #Do we need the ReLU activation function? (True = yes, False = no) 
+                     denses.extend([ nn.Linear(in_features = x[1], out_features = x[2], bias = True),
+                                   nn.ReLU(inplace = True)])         
+                 else:
+                     denses.extend( [nn.Linear(in_features = x[1], out_features = x[2], bias = True)] )        
+                     
+             elif x[0] == "F":
+                 denses.extend([nn.Flatten()] )    
+             else:
+                 print("Error: X[0] does not equal F, L or C, but equals " , x[0])
+                 raise ValueError("Wrong value for the layer type x[0]") 
+                 
+         return nn.Sequential(*features), nn.Sequential(*denses) 
+                 
          
-         x = self.fully_connected(x) 
-         x = self.act_four(x) 
+     def _initialize_weights(self): 
          
-         predicted = self.RUL_layer(x) #The rul prediction 
-       
-         return predicted
+         for m in self.modules():       #Same for all layers               
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):               
+                nn.init.kaiming_normal_(m.weight, nonlinearity = "relu")
+                nn.init.constant_(m.bias, 0) 
+          
+                
 
 
 def main_function( name_nn, name_loss_file, name_loss_graph, name_console ):
@@ -444,7 +478,7 @@ def main_function( name_nn, name_loss_file, name_loss_graph, name_console ):
     #------------------------------------------Make the training data set with Pytorch ------------------------------------------#
     #-----------------------------------------------------------------------------------------------------------#
     # Step 3. Get te samples     
-    all_variables_x = X_v_to_keep + X_s_to_keep + all_fc  #all input variables
+    #all_variables_x = X_v_to_keep + X_s_to_keep + all_fc  #all input variables
    
     # #Make the dataset
     # dataset = sensor_data( all_data_shortened,  stepsize_sample, all_variables_x, considered_length)
@@ -472,11 +506,11 @@ def main_function( name_nn, name_loss_file, name_loss_graph, name_console ):
     #-------------------------------------------------------------------------------------------------=-------------#
     #------------------------------------------Define the hyperparameters ------------------------------------------#
     #-----------------------------------------------------------------------------------------------------------#
-    input_size = len(all_variables_x) * considered_length
+    #input_size = len(all_variables_x) * considered_length
    
     #Make the neural network 
-    neural = neural_network( input_size, height, width, number_channels, num_neurons, do = 0)   
-    
+    neural = neural_network( input_size, height, width, number_channels, num_neurons, split_layer, cfg, location, do = 0)   
+                    
     #Names for saving the weights, the losses and everything on the console.
     nn_path = computer_adress + name_nn +  ".pth"    
     loss_path = computer_adress + name_loss_file + ".txt" 
@@ -487,6 +521,7 @@ def main_function( name_nn, name_loss_file, name_loss_graph, name_console ):
     #Alternative: just Stochastic gradient descent (torch.optim.SGD(momentum = ..., nesterov = ... ))
     #Possibley with momentum or nesterov (with momentum, we do need the previous weight update value -> probably not)
     #Let's see how it is done in the code
+    #Assessing the velocity parameters (necessary for SGD): https://stackoverflow.com/questions/69465707/pytorch-optim-sgd-with-momentum-how-to-check-velocity
     optimizer = torch.optim.Adam(neural.parameters(), lr=learning_rate)
     
     best_validation_loss = 1000000.  #just a big number 
@@ -568,11 +603,7 @@ def main_function( name_nn, name_loss_file, name_loss_graph, name_console ):
     plt.tight_layout()
     
     
-    name_plot = computer_adress + name_loss_graph  + str(unit) + ".png"
-    plt.savefig(name_plot, dpi = 400)
-    plt.close('all') 
-        
-
+   
 if __name__ == "__main__":
     #Here, we test our neural network :) 
     
@@ -591,14 +622,6 @@ if __name__ == "__main__":
     
     #Normalize the test data with the minimum and maximum of the training data 
     all_data_shortened = normalization(all_data_shortened, minima, maxima)
-    
-    #-------------------------------------------------------------------------------------------------=-------------#
-    #------------------------------------------Hyperparameters - general ------------------------------------------#
-    #-----------------------------------------------------------------------------------------------------------#
-    all_variables_x = X_v_to_keep + X_s_to_keep + all_fc
-    
-    #This should be the same as in the training loop -> maybe not great coding to define it twich 
-    input_size = len(all_variables_x) * considered_length
     
     #-------------------------------------------------------------------------------------------------=-------------#
     #------------------------------------------Make the data set with Pytorch ------------------------------------------#
@@ -627,7 +650,7 @@ if __name__ == "__main__":
     #--------------------------------------------------------------------------------------------------#
     #------------------------------------------Load the Neural network--------------------------------------------#
     #--------------------------------------------------------------------------------------------------#
-    neural = neural_network(input_size, height, number_channels, num_neurons, do = 0)
+    neural =neural_network( input_size, height, width, number_channels, num_neurons, split_layer, cfg, location, do = 0)   
        
     weights = "C:\\Users\\ingeborgdepate\\fed_learning\\cnn_weights"   + ".pth"
     neural.load_state_dict(torch.load(weights))
@@ -650,6 +673,7 @@ if __name__ == "__main__":
         last_flight = int(max(all_data_shortened.loc[all_data_shortened["unit"] == unit, "cycle"]))      
            
         for flight in range(1, last_flight + 1, 1):
+            print("the flight is " ,flight)
             
             mean_RUL_prediction = 0 
             
