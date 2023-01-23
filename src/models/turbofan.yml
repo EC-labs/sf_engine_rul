@@ -1,0 +1,16 @@
+models: 
+  - layers: 
+      - ["C", 1, 10]
+      - ["C", 10, 10]
+      - ["C", 10, 1]
+      - ["F"]
+      - ["L", 850, 100, True]
+      - ["L", 100, 1, False]
+    kernel_size: 
+      height: 9 
+      width: 1
+    split_layer: 6
+    
+# C: convolutional layer: TUple = ("C", in_channels, out_channels)
+# L: Fully connected linear layer. Tuple: ("L", in_features, out_features, do_activation)
+# F: flatten layer (no computations)
