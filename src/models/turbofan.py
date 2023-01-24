@@ -345,19 +345,24 @@ class EngineSimulationDataset(TurbofanSimulationDataset):
         return self.index_range[1] - self.index_range[0]
 
 
-def train_one_epoch(neural_network, loss_function, optimizer, data_loader, in_training):
+def train_one_epoch(
+    neural_client, neural_server, loss_function, 
+    optimizer, data_loader, in_training
+):
     running_loss = 0.
     num_batches = len(data_loader)
     for i, (sample_x, RUL) in enumerate(data_loader):
         logger_console.info(f"Batch {i}/{num_batches}")     
         if in_training == False:
             with torch.no_grad():                
-                predicted = neural_network(sample_x)
+                predicted = neural_client(sample_x)
+                predicted = neural_server(predicted)
                 predicted = predicted.squeeze(1)
                 loss = loss_function(RUL, predicted)
                 running_loss = running_loss + loss.item() 
         else:
-            predicted = neural_network(sample_x)
+            predicted = neural_client(sample_x)
+            predicted = neural_server(predicted)
             predicted = predicted.squeeze(1)
             loss = loss_function(RUL, predicted)
             running_loss = running_loss + loss.item() 
@@ -482,9 +487,12 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
     with open("models/turbofan.yml") as f: 
         cfg = yaml.safe_load(f)
     model_cfg = cfg.get('models')[0]
-    neural = CNNRUL(model_cfg, "Client")   
+    neural_client = CNNRUL(model_cfg, "Client")
+    neural_server = CNNRUL(model_cfg, "Server")
     nn_path = "trained/" + name_nn +  ".pth"    
-    optimizer = torch.optim.Adam(neural.parameters(), lr=learning_rate)
+    params = list(neural_server.parameters())
+    params.extend(neural_client.parameters())
+    optimizer = torch.optim.Adam(params, lr=learning_rate)
     best_validation_loss = None
     all_train_losses = [] 
     all_validation_losses = [] 
@@ -494,15 +502,17 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
         start_time_epochs = time.time() 
         logger_console.info(f"Epoch {epoch}/{num_epochs}")
 
-        neural.train(True)       
+        neural_client.train(True)       
+        neural_server.train(True)       
         loss_train = train_one_epoch(
-            neural, loss_function, optimizer, dataloader_train, in_training=True
+            neural_client, neural_server, loss_function, optimizer, dataloader_train, in_training=True
         )
         all_train_losses.append(loss_train) 
                        
-        neural.train(False)
+        neural_client.train(False)
+        neural_server.train(False)
         loss_validation = train_one_epoch(
-            neural, loss_function, optimizer, dataloader_validation, in_training=False
+            neural_client, neural_server, loss_function, optimizer, dataloader_validation, in_training=False
         )
         all_validation_losses.append(loss_validation)
 
@@ -510,7 +520,7 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
             best_validation_loss = loss_validation 
             logger_console.info(f"Update parameters. "
                         f"Best validation loss: {best_validation_loss}")
-            torch.save(copy.deepcopy(neural.state_dict()), nn_path )                   
+            torch.save(copy.deepcopy(neural_client.state_dict()), nn_path )                   
 
         time_it_took =  time.time() - start_time_epochs
         logger_console.info(f"Epoch duration: {time_it_took}") 

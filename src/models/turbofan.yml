@@ -9,7 +9,7 @@ models:
     kernel_size: 
       height: 9 
       width: 1
-    split_layer: 6
+    split_layer: 4
     
 # C: convolutional layer: TUple = ("C", in_channels, out_channels)
 # L: Fully connected linear layer. Tuple: ("L", in_features, out_features, do_activation)
