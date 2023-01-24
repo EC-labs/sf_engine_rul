@@ -8,7 +8,7 @@ RUN pip install -r requirements.txt
 COPY ./additional_requirements.txt ./
 RUN pip install -r additional_requirements.txt
 
-ENV ENGINE=2
+ENV ENGINE=20
 ENV LOG_LEVEL=INFO
 
 COPY ./fl_training ./fl_training

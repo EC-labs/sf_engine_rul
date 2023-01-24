@@ -1,3 +1,10 @@
+dataset: 
+  X_v_to_keep:  ["W21", "W50", "SmFan", "SmLPC", "SmHPC"]  
+  X_s_to_keep: ["Wf", "Nf", "T24", "T30", "T48", "T50", "P2", "P50"] 
+  stepsize_sample: 10
+  considered_length: 50
+  frequency:  1
+
 models: 
   - layers: 
       - ["C", 1, 10]
@@ -6,11 +13,17 @@ models:
       - ["F"]
       - ["L", 850, 100, True]
       - ["L", 100, 1, False]
+      # C: convolutional layer: TUple = ("C", in_channels, out_channels)
+      # L: Fully connected linear layer. Tuple: ("L", in_features, out_features, do_activation)
+      # F: flatten layer (no computations)
     kernel_size: 
       height: 9 
       width: 1
     split_layer: 4
     
-# C: convolutional layer: TUple = ("C", in_channels, out_channels)
-# L: Fully connected linear layer. Tuple: ("L", in_features, out_features, do_activation)
-# F: flatten layer (no computations)
+loss_function: "MSELoss"
+batch_size: 128
+num_epochs: 50
+learning_rate: 0.001
+np_seed: 
+seed: 7042018

@@ -49,21 +49,10 @@ logger_loss.addHandler(handler_file_loss)
 logger_console.info("=== New Execution ===")
 logger_loss.info("=== New Execution ===")
 
-stepsize_sample = 10
-considered_length = 50
-
-height = 9
-number_channels = 10     
-num_neurons = 100
-frequency =  1
-
-X_v_to_keep =  ["W21", "W50", "SmFan", "SmLPC", "SmHPC"]  
-X_s_to_keep = ["Wf", "Nf", "T24", "T30", "T48", "T50", "P2", "P50"] 
+with open("models/turbofan.yml") as f: 
+    config_turbofan = yaml.safe_load(f)
 
 loss_function = torch.nn.MSELoss()  
-batch_size = 128
-num_epochs = 50
-learning_rate = 0.001
 
 def read_in_data(
     filename: str,
@@ -191,7 +180,8 @@ class CreatorCNNTurbofan(FactoryModelDatasets):
 
 
     @staticmethod
-    def create_model_dataloader(): 
+    def create_model_datasets(): 
+        loss_function = torch.nn.MSELoss()  
         pass
 
 
@@ -199,7 +189,7 @@ class CreatorCNNEngine(FactoryModelDatasets):
 
 
     @staticmethod
-    def create_model_dataloader(): 
+    def create_model_datasets(): 
         pass
 
 
@@ -249,14 +239,19 @@ class TurbofanSimulationDataset(Dataset):
         self.considered_length = considered_length
 
         self.sample_index = []
-        self.unit_flight_all_samples = {}
+        self.unit_flight_sample_indices = {}
 
-        for unit in np.unique(all_data["unit"]):
-            data_engine = all_data.loc[all_data["unit"] == unit, :]
+        self._create_samples(considered_flights, stepsize_sample, considered_length)
+        self._pre_processing()
+
+    def _create_samples(
+        self, considered_flights: dict, stepsize_sample: int, considered_length: int
+    ): 
+        for unit in np.unique(self.all_data["unit"]):
+            data_engine = self.all_data.loc[self.all_data["unit"] == unit, :]
             flights = np.unique(data_engine["cycle"])
             nr_flights = len(flights)
 
-            self.unit_flight_all_samples[unit] = {}
             for flight in flights:
                 if flight not in considered_flights[unit]:
                     continue
@@ -268,15 +263,19 @@ class TurbofanSimulationDataset(Dataset):
                         data_flight.index[0]+i*stepsize_sample, 
                         nr_flights - flight,
                     ))
-                self.unit_flight_all_samples[unit][flight] = [
-                    len(self.sample_index)-nr_streams,
-                    len(self.sample_index),
-                ]
-        self.pre_processing()
+                self._add_flight_indices(
+                    unit, flight, 
+                    [len(self.sample_index)-nr_streams, len(self.sample_index)]
+                )
 
-    def pre_processing(self): 
+    def _pre_processing(self): 
         minimum, maximum = min_max_training(self.all_data)
         self.all_data = normalization(self.all_data, minimum, maximum)
+
+    def _add_flight_indices(self, engine, flight, indices): 
+        if engine not in self.unit_flight_sample_indices: 
+            self.unit_flight_sample_indices[engine] = {}
+        self.unit_flight_sample_indices[engine][flight] = indices
 
     def __len__(self):
         """Length of the initialized Dataset.
@@ -291,7 +290,7 @@ class TurbofanSimulationDataset(Dataset):
         """Get all measurement streams for a (unit, flight) tuple."""
 
         u, f = sample
-        return range(*self.unit_flight_all_samples[u][f])
+        return range(*self.unit_flight_sample_indices[u][f])
    
     def __getitem__(self, idx):
         """Get a single entry from the dataset. 
@@ -316,33 +315,18 @@ class TurbofanSimulationDataset(Dataset):
 class EngineSimulationDataset(TurbofanSimulationDataset): 
 
 
-    def __init__(self, engine, *args, **kwargs): 
+    def __init__(self, engine, all_data, *args, **kwargs): 
         self.engine = engine
-        super().__init__(*args, **kwargs)
+        self.flight_indices = {}
+        all_data = all_data.loc[all_data["unit"] == engine, :].copy()
+        super().__init__(all_data, *args, **kwargs)
+        del self.unit_flight_sample_indices
 
-    def pre_processing(self): 
-        start_idx = min([start 
-            for [start, _] in self.unit_flight_all_samples[self.engine].values()
-        ])
-        end_idx = max([end 
-            for [_, end] in self.unit_flight_all_samples[self.engine].values()
-        ])
-        self.index_range = (start_idx, end_idx) 
-        self.all_data = self.all_data.loc[self.all_data["unit"] == self.engine, :].copy()
-        super().pre_processing()
+    def _add_flight_indices(self, engine, flight, indices): 
+        self.flight_indices[flight] = indices
 
     def get_all_samples(self, flight): 
-        [flight_start, flight_end] = self.unit_flight_all_samples[self.engine][flight]
-        return range(
-            flight_start - self.index_range[0], 
-            flight_end - self.index_range[0],
-        )
-
-    def __getitem__(self, idx): 
-        return super().__getitem__(self.index_range[0]+idx)
-
-    def __len__(self): 
-        return self.index_range[1] - self.index_range[0]
+        return range(*self.flight_indices[flight])
 
 
 def train_one_epoch(
@@ -446,11 +430,28 @@ class CNNRUL(nn.Module):
 
 
 def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
-    np.random.seed(7042018)
-    torch.manual_seed(7_04_2018) 
+    with open("models/turbofan.yml") as f: 
+        config_turbofan = yaml.safe_load(f)
+        config_dataset = config_turbofan["dataset"]
+        config_model = config_turbofan["models"][0]
+        
+        seed = config_turbofan["seed"]
+        batch_size = config_turbofan["batch_size"]
+        learning_rate = config_turbofan["learning_rate"]
+        num_epochs = config_turbofan["num_epochs"]
+
+        X_v_to_keep = config_dataset["X_v_to_keep"]
+        X_s_to_keep = config_dataset["X_s_to_keep"]
+        stepsize_sample = config_dataset["stepsize_sample"]
+        considered_length = config_dataset["considered_length"]
+        frequency = config_dataset["frequency"]
+
+    np.random.seed(seed)
+    torch.manual_seed(seed) 
 
     all_data_shortened, all_fc = read_in_data(
-        "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5", 1, X_v_to_keep, X_s_to_keep, True, True
+        "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5", 
+        frequency, X_v_to_keep, X_s_to_keep, True, True
     )   
     all_data_shortened = all_data_shortened.drop(columns = ["hs"])    
     
@@ -476,19 +477,17 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
 
     all_variables_x = X_v_to_keep + X_s_to_keep + all_fc
    
-    dataset_train = EngineSimulationDataset(ENGINE, all_data_shortened, stepsize_sample, all_variables_x, considered_length, dict_training_flights)
+    dataset_train = EngineSimulationDataset(
+        ENGINE, all_data_shortened, stepsize_sample, all_variables_x, 
+        considered_length, dict_training_flights
+    )
     dataset_valid = EngineSimulationDataset(ENGINE, all_data_shortened, stepsize_sample, all_variables_x, considered_length, dict_validation_flights)
     
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True) 
     dataloader_validation = DataLoader(dataset_valid, batch_size = batch_size, shuffle = False)
     
-    input_size = len(all_variables_x) * considered_length
-
-    with open("models/turbofan.yml") as f: 
-        cfg = yaml.safe_load(f)
-    model_cfg = cfg.get('models')[0]
-    neural_client = CNNRUL(model_cfg, "Client")
-    neural_server = CNNRUL(model_cfg, "Server")
+    neural_client = CNNRUL(config_model, "Client")
+    neural_server = CNNRUL(config_model, "Server")
     nn_path = "trained/" + name_nn +  ".pth"    
     params = list(neural_server.parameters())
     params.extend(neural_client.parameters())
