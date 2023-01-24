@@ -190,7 +190,53 @@ class CreatorCNNEngine(FactoryModelDatasets):
 
     @staticmethod
     def create_model_datasets(): 
-        pass
+        config_dataset = config_turbofan["dataset"]
+        config_model = config_turbofan["models"][0]
+        X_v_to_keep = config_dataset["X_v_to_keep"]
+        X_s_to_keep = config_dataset["X_s_to_keep"]
+        stepsize_sample = config_dataset["stepsize_sample"]
+        considered_length = config_dataset["considered_length"]
+        frequency = config_dataset["frequency"]
+        seed = config_turbofan["seed"]
+        validation_size = config_turbofan["validation_size"]
+        ENGINE = int(os.getenv("ENGINE", "2.0"))
+        np.random.seed(seed)
+        torch.manual_seed(seed) 
+
+        df_turbofan, all_fc = read_in_data(
+            "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5", 
+            frequency, X_v_to_keep, X_s_to_keep, True, True
+        )
+        df_turbofan = df_turbofan.drop(columns = ["hs"])    
+        all_variables_x = X_v_to_keep + X_s_to_keep + all_fc
+        
+        dict_training_flights = {} 
+        dict_validation_flights = {} 
+
+        for unit in np.unique(df_turbofan.loc[:, "unit"]):
+            last_flight = int(max(df_turbofan.loc[df_turbofan["unit"] == unit, "cycle"])) 
+            all_flights = list(range(1, last_flight + 1, 1))
+            validation_flights = np.random.choice(
+                np.array(all_flights), size=math.floor(validation_size * len(all_flights)), replace=False
+            )
+            training_flights =  list(set(all_flights) - set(validation_flights)) 
+            dict_training_flights[unit] = training_flights 
+            dict_validation_flights[unit] = validation_flights
+
+       
+        dataset_train = EngineSimulationDataset(
+            ENGINE, df_turbofan, stepsize_sample, all_variables_x, 
+            considered_length, dict_training_flights
+        )
+        dataset_valid = EngineSimulationDataset(
+            ENGINE, df_turbofan, stepsize_sample, all_variables_x, 
+            considered_length, dict_validation_flights
+        )
+        neural_client = CNNRUL(config_model, "Client")
+        return (
+            neural_client, 
+            {"train": dataset_train, "validation": dataset_valid}
+        )
 
 
 class TurbofanSimulationDataset(Dataset):
@@ -430,63 +476,16 @@ class CNNRUL(nn.Module):
 
 
 def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
-    with open("models/turbofan.yml") as f: 
-        config_turbofan = yaml.safe_load(f)
-        config_dataset = config_turbofan["dataset"]
-        config_model = config_turbofan["models"][0]
-        
-        seed = config_turbofan["seed"]
-        batch_size = config_turbofan["batch_size"]
-        learning_rate = config_turbofan["learning_rate"]
-        num_epochs = config_turbofan["num_epochs"]
-
-        X_v_to_keep = config_dataset["X_v_to_keep"]
-        X_s_to_keep = config_dataset["X_s_to_keep"]
-        stepsize_sample = config_dataset["stepsize_sample"]
-        considered_length = config_dataset["considered_length"]
-        frequency = config_dataset["frequency"]
-
-    np.random.seed(seed)
-    torch.manual_seed(seed) 
-
-    all_data_shortened, all_fc = read_in_data(
-        "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5", 
-        frequency, X_v_to_keep, X_s_to_keep, True, True
-    )   
-    all_data_shortened = all_data_shortened.drop(columns = ["hs"])    
+    batch_size = config_turbofan["batch_size"]
+    learning_rate = config_turbofan["learning_rate"]
+    num_epochs = config_turbofan["num_epochs"]
+    config_model = config_turbofan["models"][0]
     
-    ENGINE = int(os.getenv("ENGINE", "2.0"))
-    
-    validation_size = 0.2 
-    units = np.unique(all_data_shortened.loc[:, "unit"])
-    
-    dict_training_flights = {} 
-    dict_validation_flights = {} 
-
-    for unit in units:
-        last_flight = int(max(all_data_shortened.loc[all_data_shortened["unit"] == unit, "cycle"])) 
-        all_flights = list(range(1, last_flight + 1, 1))
-        
-        validation_flights = np.random.choice(
-            np.array(all_flights), size=math.floor(validation_size * len(all_flights)), replace=False
-        )
-        training_flights =  list(set(all_flights) - set(validation_flights)) 
-        
-        dict_training_flights[unit] = training_flights 
-        dict_validation_flights[unit] = validation_flights
-
-    all_variables_x = X_v_to_keep + X_s_to_keep + all_fc
-   
-    dataset_train = EngineSimulationDataset(
-        ENGINE, all_data_shortened, stepsize_sample, all_variables_x, 
-        considered_length, dict_training_flights
-    )
-    dataset_valid = EngineSimulationDataset(ENGINE, all_data_shortened, stepsize_sample, all_variables_x, considered_length, dict_validation_flights)
-    
+    neural_client, training_partitions = CreatorCNNEngine.create_model_datasets()
+    dataset_train, dataset_valid = training_partitions["train"], training_partitions["validation"]
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True) 
     dataloader_validation = DataLoader(dataset_valid, batch_size = batch_size, shuffle = False)
     
-    neural_client = CNNRUL(config_model, "Client")
     neural_server = CNNRUL(config_model, "Server")
     nn_path = "trained/" + name_nn +  ".pth"    
     params = list(neural_server.parameters())
@@ -497,10 +496,8 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
     all_validation_losses = [] 
 
     for epoch in range(0, num_epochs, 1):
-
         start_time_epochs = time.time() 
         logger_console.info(f"Epoch {epoch}/{num_epochs}")
-
         neural_client.train(True)       
         neural_server.train(True)       
         loss_train = train_one_epoch(
@@ -517,8 +514,10 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
 
         if (best_validation_loss == None) or (loss_validation < best_validation_loss):
             best_validation_loss = loss_validation 
-            logger_console.info(f"Update parameters. "
-                        f"Best validation loss: {best_validation_loss}")
+            logger_console.info(
+                f"Update parameters. "
+                f"Best validation loss: {best_validation_loss}"
+            )
             torch.save(copy.deepcopy(neural_client.state_dict()), nn_path )                   
 
         time_it_took =  time.time() - start_time_epochs

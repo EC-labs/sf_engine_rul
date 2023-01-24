@@ -10,8 +10,7 @@ class FactoryModelDatasets:
 
     @staticmethod
     @abstractmethod
-    def create_model_datasets() -> int: 
-    # -> Tuple[Type[torch.Module], Dict[str, Type[Dataset]]]:
+    def create_model_datasets() -> Tuple[Type[torch.nn.Module], Dict[str, Type[Dataset]]]:
         """This function provides the neural network, and the training,
         validation, and testing datasets. 
 
