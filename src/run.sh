@@ -26,7 +26,7 @@ docker run \
   --name fedadapt_server --rm \
   --network fedadapt_network \
   --env "NCLIENTS=${nClients}" \
-  fedadapt/base_image "fl_training.fedadapt_server_run.py" 1>"${logsDir}/server.log" 2>&1 &
+  fedadapt/base_image "distributed_learning.fedadapt_server_run.py" 1>"${logsDir}/server.log" 2>&1 &
 
 sleep 3
 
@@ -38,6 +38,6 @@ for i in $( seq 0 $((nClients - 1)) ); do
     --network fedadapt_network \
     --env "ENGINE=${i}" \
     --env "NCLIENTS=${nClients}" \
-    fedadapt/base_image "fl_training.fedadapt_client_run.py" 1>"${logsDir}/client_${i}.log" 2>&1 &
+    fedadapt/base_image "distributed_learning.fedadapt_client_run.py" 1>"${logsDir}/client_${i}.log" 2>&1 &
   done
 

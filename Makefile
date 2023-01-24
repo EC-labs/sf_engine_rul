@@ -29,7 +29,7 @@ run: create_image create_network
 			$(CONTAINER_NETWORK) \
 			$(VOLUME_RESULTS) $(VOLUME_DATA) \
 			--name fedadapt_server \
-			$(IMAGE) fl_training.fedadapt_server_run 1>"$(LOGS_DIR)/server.log" 2>&1 &
+			$(IMAGE) distributed_learning.fedadapt_server_run 1>"$(LOGS_DIR)/server.log" 2>&1 &
 		@sleep 3
 		for i in $$(seq 0 $$(($(NCLIENTS) - 1))); do \
 			docker run \
@@ -40,7 +40,7 @@ run: create_image create_network
 				$(VOLUME_RESULTS) $(VOLUME_DATA) \
 				--env ENGINE=$$i \
 				--name fedadapt_client_$$i \
-				$(IMAGE) fl_training.fedadapt_client_run 1>"$(LOGS_DIR)/client_$$i.log" 2>&1 & \
+				$(IMAGE) distributed_learning.fedadapt_client_run 1>"$(LOGS_DIR)/client_$$i.log" 2>&1 & \
 		done
 
 create_image: 

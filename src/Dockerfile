@@ -11,7 +11,7 @@ RUN pip install -r additional_requirements.txt
 ENV ENGINE=20
 ENV LOG_LEVEL=INFO
 
-COPY ./fl_training ./fl_training
+COPY ./distributed_learning ./distributed_learning
 COPY ./models ./models
 COPY ./*.py ./
 

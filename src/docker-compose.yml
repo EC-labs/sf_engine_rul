@@ -5,7 +5,7 @@ x-client-common:
   build: . 
   depends_on: 
     - server
-  command: "fl_training.fedadapt_client_run"
+  command: "distributed_learning.fedadapt_client_run"
   volumes:
     - ./data:/usr/src/app/data
     - ./results:/usr/src/app/results
@@ -17,7 +17,7 @@ services:
   server: 
     container_name: fedadapt_server
     build: . 
-    command: "fl_training.fedadapt_server_run"
+    command: "distributed_learning.fedadapt_server_run"
     networks: 
       - fedadapt_network
     volumes:

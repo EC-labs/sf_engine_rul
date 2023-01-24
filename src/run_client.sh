@@ -10,4 +10,4 @@ docker run \
   -h pi41 \
   --network fedadapt_network \
   --env "ENGINE=0" \
-  fedadapt/base_image "fl_training.fedadapt_client_run.py"
+  fedadapt/base_image "distributed_learning.fedadapt_client_run.py"
