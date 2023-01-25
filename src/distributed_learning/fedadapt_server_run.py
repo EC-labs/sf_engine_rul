@@ -3,8 +3,8 @@ import torch
 import pickle
 import argparse
 import logging
-import sys
-import os
+import torchvision
+import torchvision.transforms as transforms
 
 import config
 import utils
@@ -23,7 +23,27 @@ LR = config.LR
 offload = args.offload
 
 logger.info('Preparing Server.')
-server = Server('0.0.0.0', config.SERVER_PORT, 'VGG5', offload, LR)
+neural_network_unit = utils.get_model(
+    'Unit', 'VGG5', config.model_len-1, 'cpu', config.model_cfg
+)
+server = Server(
+    '0.0.0.0', config.SERVER_PORT, 'VGG5', offload, LR, neural_network_unit,
+    torch.optim.SGD, torch.nn.CrossEntropyLoss()
+)
+
+transform_test = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+])
+testset = torchvision.datasets.CIFAR10(
+    root=config.dataset_path, 
+    train=False, 
+    download=True, 
+    transform=transform_test
+)
+testloader = torch.utils.data.DataLoader(
+    testset, batch_size=100, shuffle=False, num_workers=4
+)
 
 if offload:
     state_dim = 2*config.G
@@ -51,7 +71,7 @@ for r in range(config.R):
     res['training_time'].append(training_time)
     res['bandwidth_record'].append(bandwidth)
 
-    test_acc = server.test(r)
+    test_acc = server.test(testloader)
     res['test_acc_record'].append(test_acc)
 
     with open(config.home + '/results/FedAdapt_res.pkl','wb') as f:
