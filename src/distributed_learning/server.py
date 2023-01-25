@@ -72,11 +72,7 @@ class Server:
         self.initialize(config.split_layer, offload, True, LR)
          
     def initialize(
-        self, 
-        split_layers: List[int], 
-        offload: bool, 
-        first: bool, 
-        LR: float
+        self, split_layers: List[int], offload: bool, first: bool, LR: float
     ):
         """Create a NN model for each client.
 

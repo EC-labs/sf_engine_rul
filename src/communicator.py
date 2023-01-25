@@ -2,11 +2,19 @@ import pickle
 import struct
 import socket
 import logging
+import sys
 
 from typing import Tuple
 
-logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
 logger = logging.getLogger(__name__)
+logger.propagate = False
+handler_console = logging.StreamHandler(stream=sys.stdout)
+format_console = logging.Formatter('%(asctime)s [%(levelname)s]: %(name)s : %(message)s')
+handler_console.setFormatter(format_console)
+handler_console.setLevel(logging.DEBUG)
+logger.addHandler(handler_console)
+
 
 class Communicator(object):
 

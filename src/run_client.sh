@@ -2,12 +2,19 @@
 
 set -e
 
+script_directory="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
 docker build \
-  -t fedadapt/base_image .
+  -t fedadapt/base_image "$script_directory"
 
 docker run \
-  -it --name fedadapt_client --rm \
-  -h pi41 \
+  -it \
+  --label "group=sf_engine_rul" \
+  --rm \
+  --env "NCLIENTS=1" \
   --network fedadapt_network \
-  --env "ENGINE=0" \
-  fedadapt/base_image "distributed_learning.fedadapt_client_run.py"
+  -v "${script_directory}/../results:/usr/src/app/results" \
+  -v "${script_directory}/../data:/usr/src/app/data" \
+  --env "ENGINE=20" \
+  --name fedadapt_client \
+  fedadapt/base_image pdb -m "distributed_learning.fedadapt_client_run"

@@ -5,11 +5,14 @@ import tqdm
 import time
 import numpy as np
 import sys
+import logging
+
+from typing import Type
 
 import config
 import utils
+
 from communicator import Communicator
-import logging
 
 
 logger = logging.getLogger(__name__)
@@ -26,66 +29,63 @@ torch.manual_seed(0)
 class SplitFedClient:
 
 
+    net: torch.nn.Module
+    split_layer: int
+    conn: Communicator
+    cls_optimizer: Type[torch.optim.Optimizer]
+    _optimizer: torch.optim.Optimizer
+
     def __init__(
-        self, server_addr, server_port, datalen, 
-        model_name, split_layer, offload, LR
+        self, server_addr, server_port, model_name, 
+        split_layer, criterion, cls_optimizer: Type[torch.optim.Optimizer], 
+        neural_network: torch.nn.Module,
     ):
-        self.datalen = datalen
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model_name = model_name
-        self.uninet = utils.get_model('Unit', self.model_name, config.model_len-1, self.device, config.model_cfg)
+        self.neural_network = neural_network
+        self.criterion = criterion
+        self.cls_optimizer = cls_optimizer
         logger.info('Connecting to Server.')
         self.conn = Communicator()
         self.conn.connect((server_addr, server_port))
-        self.initialize(split_layer, offload, True, LR)
+        self.weights_receive()
 
-    def initialize(self, split_layer, offload, first, LR):
-        if offload or first:
-            self.split_layer = split_layer
-            logger.debug('Building Model.')
-            self.net = utils.get_model('Client', self.model_name, self.split_layer, self.device, config.model_cfg)
-            logger.debug(self.net)
-            self.criterion = nn.CrossEntropyLoss()
-            self.optimizer = optim.SGD(self.net.parameters(), lr=LR, momentum=0.9)
 
+    def optimizer(self, *args, **kwargs): 
+        self._optimizer = self.cls_optimizer(
+            self.neural_network.parameters(), *args, **kwargs
+        )
+
+    def weights_receive(self):
         logger.debug('Receiving Global Weights..')
         weights = self.conn.recv_msg()[1]
-        if self.split_layer == (config.model_len -1):
-            self.net.load_state_dict(weights)
-        else:
-            pweights = utils.split_weights_client(weights,self.net.state_dict())
-            self.net.load_state_dict(pweights)
+        pweights = utils.split_weights_client(weights, self.neural_network.state_dict())
+        self.neural_network.load_state_dict(pweights)
         logger.debug('Initialize Finished')
 
     def train(self, trainloader):
-        # Training start
-        s_time_total = time.time()
-        time_training_c = 0
-        self.net.to(self.device)
-        self.net.train()
-        if self.split_layer == (config.model_len -1): # No offloading training
-            for batch_idx, (inputs, targets) in enumerate(tqdm.tqdm(trainloader)):
-                inputs, targets = inputs.to(self.device), targets.to(self.device)
-                self.optimizer.zero_grad()
-                outputs = self.net(inputs)
-                loss = self.criterion(outputs, targets)
-                loss.backward()
-                self.optimizer.step()
-            
-        else: # Offloading training
-            for batch_idx, (inputs, targets) in enumerate(tqdm.tqdm(trainloader)):
-                inputs, targets = inputs.to(self.device), targets.to(self.device)
-                self.optimizer.zero_grad()
-                outputs = self.net(inputs)
+        try: 
+            assert hasattr(self, "_optimizer")
+        except: 
+            logger.exception("Optimizer has not been initialized.")
+            raise
 
+        s_time_total = time.time()
+        self.neural_network.to(self.device)
+        self.neural_network.train()
+        for batch_idx, (inputs, targets) in enumerate(tqdm.tqdm(trainloader)):
+            inputs, targets = inputs.to(self.device), targets.to(self.device)
+            self._optimizer.zero_grad()
+            outputs = self.neural_network(inputs)
+            if self.neural_network.split_layer != (config.model_len-1):
                 msg = ['MSG_LOCAL_ACTIVATIONS_CLIENT_TO_SERVER', outputs.cpu(), targets.cpu()]
                 self.conn.send_msg(msg)
-
-                # Server gradients
                 gradients = self.conn.recv_msg()[1].to(self.device)
-
                 outputs.backward(gradients)
-                self.optimizer.step()
+            else: 
+                loss = self.criterion(outputs, targets)
+                loss.backward()
+            self._optimizer.step()
 
         e_time_total = time.time()
         logger.info('Total time: ' + str(e_time_total - s_time_total))
@@ -98,10 +98,6 @@ class SplitFedClient:
 
         return e_time_total - s_time_total
         
-    def upload(self):
-        msg = ['MSG_LOCAL_WEIGHTS_CLIENT_TO_SERVER', self.net.cpu().state_dict()]
+    def weights_upload(self):
+        msg = ['MSG_LOCAL_WEIGHTS_CLIENT_TO_SERVER', self.neural_network.cpu().state_dict()]
         self.conn.send_msg(msg)
-
-    def reinitialize(self, split_layers, offload, first, LR):
-        self.initialize(split_layers, offload, first, LR)
-
