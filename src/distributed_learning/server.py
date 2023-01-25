@@ -15,9 +15,9 @@ sys.path.append('../')
 import utils
 import config
 
-from typing import List
+from typing import List, Dict
 
-from Communicator import *
+from communicator import *
 
 logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -25,8 +25,10 @@ logger = logging.getLogger(__name__)
 np.random.seed(0)
 torch.manual_seed(0)
 
-class Server(Communicator):
+class Server:
 
+
+    client_socks: Dict[str, Communicator]
 
     def __init__(
         self, 
@@ -36,21 +38,20 @@ class Server(Communicator):
         offload: bool, 
         LR: float, 
     ):
-
-        super(Server, self).__init__(ip_address)
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.port = server_port
         self.model_name = model_name
-        self.sock.bind((self.ip, self.port))
+        self.sock = socket.socket()
+        self.sock.bind((ip_address, server_port))
         self.client_socks = {}
 
         while len(self.client_socks) < config.K:
             self.sock.listen(5)
             logger.info("Waiting Incoming Connections.")
             (client_sock, (ip, _)) = self.sock.accept()
-            logger.info('Got connection from ' + str(ip))
+            logger.info(f'Got connection from {ip}')
             logger.info(client_sock)
-            self.client_socks[str(ip)] = client_sock
+            self.client_socks[str(ip)] = Communicator(sock=client_sock)
 
         self.uninet = utils.get_model(
             'Unit', self.model_name, config.model_len-1, self.device, config.model_cfg
@@ -129,7 +130,7 @@ class Server(Communicator):
 
         msg = ['MSG_INITIAL_GLOBAL_WEIGHTS_SERVER_TO_CLIENT', self.uninet.state_dict()]
         for i in self.client_socks:
-            self.send_msg(self.client_socks[i], msg)
+            self.client_socks[i].send_msg(msg)
 
     def train(self):
         # Network test
@@ -160,7 +161,7 @@ class Server(Communicator):
 
         self.ttpi = {} # Training time per iteration
         for s in self.client_socks:
-            msg = self.recv_msg(self.client_socks[s], 'MSG_TRAINING_TIME_PER_ITERATION')
+            msg = self.client_socks[s].recv_msg('MSG_TRAINING_TIME_PER_ITERATION')
             self.ttpi[msg[1]] = msg[2]
 
         return self.bandwidth
@@ -171,7 +172,7 @@ class Server(Communicator):
     def _thread_training_offloading(self, client_ip):
         iteration = int((config.N / (config.K * config.B)))
         for i in range(iteration):
-            msg = self.recv_msg(self.client_socks[client_ip], 'MSG_LOCAL_ACTIVATIONS_CLIENT_TO_SERVER')
+            msg = self.client_socks[client_ip].recv_msg('MSG_LOCAL_ACTIVATIONS_CLIENT_TO_SERVER')
             smashed_layers = msg[1]
             labels = msg[2]
 
@@ -184,7 +185,7 @@ class Server(Communicator):
 
             # Send gradients to client
             msg = ['MSG_SERVER_GRADIENTS_SERVER_TO_CLIENT_'+str(client_ip), inputs.grad]
-            self.send_msg(self.client_socks[client_ip], msg)
+            self.client_socks[client_ip].send_msg(msg)
 
         logger.info(str(client_ip) + ' offloading training end')
         return 'Finish'
@@ -192,7 +193,7 @@ class Server(Communicator):
     def aggregate(self):
         w_local_list =[]
         for i, client_ip in enumerate(self.client_socks):
-            msg = self.recv_msg(self.client_socks[client_ip], 'MSG_LOCAL_WEIGHTS_CLIENT_TO_SERVER')
+            msg = self.client_socks[client_ip].recv_msg('MSG_LOCAL_WEIGHTS_CLIENT_TO_SERVER')
             if config.split_layer[i] != (config.model_len-1):
                 w_local = (
                     utils.concat_weights(

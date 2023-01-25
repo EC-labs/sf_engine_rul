@@ -1,17 +1,21 @@
-import socket
 import time
 import multiprocessing
 import argparse
 import logging
 import sys
 
-from .client import Client
+from distributed_learning.client import SplitFedClient
 import config
 import utils
 
 
-logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+logger.propagate = False
+handler_console = logging.StreamHandler(stream=sys.stdout)
+format_console = logging.Formatter('[%(levelname)s]: %(name)s : %(message)s')
+handler_console.setFormatter(format_console)
+handler_console.setLevel(logging.DEBUG)
+logger.addHandler(handler_console)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--offload', help='FedAdapt or classic FL mode', type=utils.str2bool, default=False)
@@ -23,14 +27,15 @@ split_layer = config.split_layer[index]
 LR = config.LR
 
 logger.info('Preparing Client')
-client = Client(config.SERVER_ADDR, config.SERVER_PORT, datalen, 'VGG5', split_layer)
-
 offload = args.offload
-client.initialize(split_layer, offload, True, LR)
+client = SplitFedClient(
+    config.SERVER_ADDR, config.SERVER_PORT, datalen,
+    'VGG5', split_layer, offload, LR
+)
 
 logger.info('Preparing Data.')
 cpu_count = multiprocessing.cpu_count()
-trainloader, classes= utils.get_local_dataloader(index, cpu_count)
+trainloader = utils.get_local_dataloader(index, cpu_count)
 
 if offload:
     logger.info('FedAdapt Training')
