@@ -1,13 +1,3 @@
-'''Some helper functions for FedAdapt, including:
-    - get_local_dataloader: split dataset and get respective dataloader.
-    - get_model: build the model according to location and split layer.
-    - split_weights_client: split client's weights from holistic weights.
-    - split_weights_server: split server's weights from holistic weights
-    - concat_weights: concatenate server's weights and client's weights.
-    - zero_init: zero initialization.
-    - fed_avg: FedAvg aggregation.
-    - str2bool.
-'''
 import torch
 import torch.nn as nn
 import torch.nn.init as init
@@ -15,7 +5,7 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Subset
 
-from vgg import VGG
+from models.vgg import VGG
 from config import N, K, B, dataset_path
 import collections
 import numpy as np

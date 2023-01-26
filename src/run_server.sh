@@ -17,4 +17,4 @@ docker run \
   -v "${script_directory}/../data:/usr/src/app/data" \
   -v "${script_directory}/logs:/usr/src/app/logs" \
 	--name fedadapt_server \
-  fedadapt/base_image "distributed_learning.fedadapt_server_run"
+  fedadapt/base_image "script_rul_engine_server"
