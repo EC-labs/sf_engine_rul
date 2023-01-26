@@ -13,7 +13,8 @@ docker run \
   --rm \
   --env "NCLIENTS=1" \
   --network fedadapt_network \
-  -v "$script_directory/../results:/usr/src/app/results" \
-  -v "$script_directory/../data:/usr/src/app/data" \
+  -v "${script_directory}/../results:/usr/src/app/results" \
+  -v "${script_directory}/../data:/usr/src/app/data" \
+  -v "${script_directory}/logs:/usr/src/app/logs" \
 	--name fedadapt_server \
-  fedadapt/base_image pdb -m "distributed_learning.fedadapt_server_run"
+  fedadapt/base_image "distributed_learning.fedadapt_server_run"

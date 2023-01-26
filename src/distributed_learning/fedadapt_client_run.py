@@ -5,9 +5,13 @@ import argparse
 import logging
 import sys
 
-from distributed_learning.client import SplitFedClient
+from torch.utils.data import DataLoader
+
 import config
 import utils
+
+from distributed_learning.client import SplitFedClient
+from models.turbofan import CreatorCNNEngine 
 
 
 logger = logging.getLogger(__name__)
@@ -24,21 +28,24 @@ split_layer = config.split_layer[index]
 LR = config.LR
 
 logger.info('Create Client')
-neural_client = utils.get_model('Client', 'VGG5', 'cpu', config.model_cfg, split_layer)
+neural_client, training_partitions = CreatorCNNEngine.create_model_datasets(split_layer)
+dataset_train, dataset_valid = training_partitions["train"], training_partitions["validation"]
+dataloader_train = DataLoader(dataset_train, batch_size=config.B, shuffle=True)
+dataloader_validation = DataLoader(dataset_valid, batch_size=config.B, shuffle=False)
+
 client = SplitFedClient(
     config.SERVER_ADDR, config.SERVER_PORT, 'VGG5', split_layer, 
-    torch.nn.CrossEntropyLoss(), torch.optim.SGD, neural_client
+    torch.nn.MSELoss(), torch.optim.SGD, neural_client
 )
 client.optimizer(lr=LR, momentum=0.9)
 
 logger.info('Prepare Data')
 cpu_count = multiprocessing.cpu_count()
-trainloader = utils.get_local_dataloader(index, cpu_count)
 
 logger.info("Start Training")
 for r in range(config.R):
     logger.info(f'ROUND {r} START')
-    training_time = client.train(trainloader)
+    training_time = client.train(dataloader_train)
 
     logger.info("Weights upload")
     client.weights_upload()

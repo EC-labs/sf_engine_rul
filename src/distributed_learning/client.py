@@ -68,6 +68,8 @@ class SplitFedClient:
         except: 
             logger.exception("Optimizer has not been initialized.")
             raise
+        msg = ['CLIENT_TRAINING_ITERATIONS_NUMBER', len(trainloader)]
+        self.conn.send_msg(msg)
 
         s_time_total = time.time()
         self.neural_network.to(self.device)

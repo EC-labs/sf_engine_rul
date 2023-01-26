@@ -61,8 +61,11 @@ class SplitFedServerThread:
         )
 
     def train_offloading(self):
-        iteration = int((config.N / (config.K * config.B)))
-        for i in range(iteration):
+        _, iterations_number = self.comm.recv_msg(
+            expect_msg_type='CLIENT_TRAINING_ITERATIONS_NUMBER'
+        )
+        logger.debug(f"Number training iterations: {iterations_number}")
+        for i in tqdm.tqdm(range(iterations_number)):
             msg = self.comm.recv_msg('MSG_LOCAL_ACTIVATIONS_CLIENT_TO_SERVER')
             smashed_layers = msg[1]
             labels = msg[2]

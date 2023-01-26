@@ -233,11 +233,24 @@ class CreatorCNNTurbofan(FactoryModelDatasets):
 
 class CreatorCNNEngine(FactoryModelDatasets):
 
+    @staticmethod
+    def nn_unit_create(): 
+        config_model = config_turbofan["models"][0]
+        nn_unit = CNNRUL(config_model, "Unit")
+        return nn_unit
 
     @staticmethod
-    def create_model_datasets():
+    def nn_server_create(split_layer): 
+        config_model = config_turbofan["models"][0]
+        config_model["split_layer"] = split_layer
+        nn_server = CNNRUL(config_model, "Server")
+        return nn_server
+
+    @staticmethod
+    def create_model_datasets(split_layer):
         config_dataset = config_turbofan["dataset"]
         config_model = config_turbofan["models"][0]
+        config_model["split_layer"] = split_layer
         X_v_to_keep = config_dataset["X_v_to_keep"]
         X_s_to_keep = config_dataset["X_s_to_keep"]
         stepsize_sample = config_dataset["stepsize_sample"]
@@ -400,7 +413,7 @@ class TurbofanSimulationDataset(Dataset):
         sample_x = np.float32(sample_x)
         return (
             torch.from_numpy(sample_x).unsqueeze(0),
-            np.float32(RUL)
+            torch.from_numpy(np.array(np.float32(RUL))).unsqueeze(0)
         )
 
 
@@ -574,4 +587,4 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
     logger_loss.info('Validation loss')
     logger_loss.info(all_validation_losses)
 
-main_function("cnn_weights", "Losses", "Graph", "console")
+# main_function("cnn_weights", "Losses", "Graph", "console")
