@@ -16,4 +16,4 @@ docker run \
   -v "$script_directory/../results:/usr/src/app/results" \
   -v "$script_directory/../data:/usr/src/app/data" \
 	--name fedadapt_server \
-  fedadapt/base_image "distributed_learning.fedadapt_server_run.py"
+  fedadapt/base_image pdb -m "distributed_learning.fedadapt_server_run"

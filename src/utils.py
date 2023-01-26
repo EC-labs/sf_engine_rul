@@ -1,14 +1,11 @@
 '''Some helper functions for FedAdapt, including:
     - get_local_dataloader: split dataset and get respective dataloader.
     - get_model: build the model according to location and split layer.
-    - send_msg: send msg with type checking.
-    - recv_msg: receive msg with type checking.
     - split_weights_client: split client's weights from holistic weights.
     - split_weights_server: split server's weights from holistic weights
     - concat_weights: concatenate server's weights and client's weights.
     - zero_init: zero initialization.
     - fed_avg: FedAvg aggregation.
-    - norm_list: normlize each item in a list with sum.
     - str2bool.
 '''
 import torch
@@ -18,9 +15,8 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Subset
 
-import pickle, struct, socket
-from vgg import *
-from config import *
+from vgg import VGG
+from config import N, K, B, dataset_path
 import collections
 import numpy as np
 
@@ -48,13 +44,9 @@ def get_local_dataloader(CLIENT_IDEX, cpu_count):
     trainloader = DataLoader(
         subset, batch_size=B, shuffle=True, num_workers=cpu_count
     )
-    classes = (
-        'plane', 'car', 'bird', 'cat', 'deer',
-        'dog', 'frog', 'horse', 'ship', 'truck'
-    )
-    return trainloader, classes
+    return trainloader
 
-def get_model(location, model_name, layer, device, cfg) ->  nn.Module:
+def get_model(location, model_name, device, cfg, layer) ->  nn.Module:
     """
     Get the pytorch NN model. 
 
@@ -66,30 +58,6 @@ def get_model(location, model_name, layer, device, cfg) ->  nn.Module:
     net = net.to(device)
     logger.debug(str(net))
     return net
-
-def send_msg(sock, msg):
-    """
-    Send message via pre-existing socket. 
-
-    The socket should already be initialized for this function to work. 
-    
-    Raises: 
-        ?? Should raise an error if the socket is not initialized.
-    """
-    msg_pickle = pickle.dumps(msg)
-    sock.sendall(struct.pack(">I", len(msg_pickle)))
-    sock.sendall(msg_pickle)
-    logger.debug(msg[0]+'sent to'+str(sock.getpeername()[0])+':'+str(sock.getpeername()[1]))
-
-def recv_msg(sock, expect_msg_type=None):
-    msg_len = struct.unpack(">I", sock.recv(4))[0]
-    msg = sock.recv(msg_len, socket.MSG_WAITALL)
-    msg = pickle.loads(msg)
-    logger.debug(msg[0]+'received from'+str(sock.getpeername()[0])+':'+str(sock.getpeername()[1]))
-
-    if (expect_msg_type is not None) and (msg[0] != expect_msg_type):
-        raise Exception("Expected " + expect_msg_type + " but received " + msg[0])
-    return msg
 
 def split_weights_client(weights,cweights):
     for key in cweights:

@@ -28,9 +28,8 @@ class Communicator(object):
         self.sock.sendall(struct.pack(">I", len(msg_pickle)))
         self.sock.sendall(msg_pickle)
         logger.debug(
-            msg[0],
-            f'sent to {self.sock.getpeername()[0]}:', 
-            self.sock.getpeername()[1]
+            f'[{msg[0]}] sent to {self.sock.getpeername()[0]}:'
+            f'{self.sock.getpeername()[1]}'
         )
 
     def recv_msg(self, expect_msg_type=None):
@@ -38,9 +37,8 @@ class Communicator(object):
         msg = self.sock.recv(msg_len, socket.MSG_WAITALL)
         msg = pickle.loads(msg)
         logger.debug(
-            msg[0],
-            f'received from {self.sock.getpeername()[0]}:', 
-            self.sock.getpeername()[1]
+            f"{msg[0]} received from {self.sock.getpeername()[0]}:" 
+            f"{self.sock.getpeername()[1]}"
         )
         if expect_msg_type is not None:
             if msg[0] == 'Finish':

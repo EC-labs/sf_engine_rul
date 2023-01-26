@@ -24,7 +24,7 @@ split_layer = config.split_layer[index]
 LR = config.LR
 
 logger.info('Create Client')
-neural_client = utils.get_model('Client', 'VGG5', split_layer, 'cpu', config.model_cfg)
+neural_client = utils.get_model('Client', 'VGG5', 'cpu', config.model_cfg, split_layer)
 client = SplitFedClient(
     config.SERVER_ADDR, config.SERVER_PORT, 'VGG5', split_layer, 
     torch.nn.CrossEntropyLoss(), torch.optim.SGD, neural_client

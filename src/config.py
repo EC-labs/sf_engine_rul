@@ -3,7 +3,10 @@ import os
 import logging
 
 LOG_LEVEL = os.getenv("LOG_LEVEL") or logging.INFO
-logging.basicConfig(level=LOG_LEVEL)
+logging.basicConfig(
+    format='%(asctime)s [%(levelname)s]:%(name)s:%(threadName)s: %(message)s',
+    level=LOG_LEVEL,
+)
 
 # Network configration
 SERVER_ADDR= 'fedadapt_server'
@@ -32,11 +35,12 @@ model_cfg = {
         ('D', 128, 10, 1, 10, 128*10),
     ]
 }
+
 model_name = 'VGG5'
 model_size = 1.28
 model_flops = 32.902
 total_flops = 8488192
-split_layer = [6,6,6,6,6] #Initial split layers
+split_layer = [3, 3, 3, 3, 3] #Initial split layers
 model_len = 7
 
 

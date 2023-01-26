@@ -57,11 +57,10 @@ class SplitFedClient:
         )
 
     def weights_receive(self):
-        logger.debug('Receiving Global Weights..')
+        logger.debug('Receive Global Weights..')
         weights = self.conn.recv_msg()[1]
         pweights = utils.split_weights_client(weights, self.neural_network.state_dict())
         self.neural_network.load_state_dict(pweights)
-        logger.debug('Initialize Finished')
 
     def train(self, trainloader):
         try: 
