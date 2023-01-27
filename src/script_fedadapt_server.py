@@ -9,8 +9,8 @@ import torchvision.transforms as transforms
 from functools import partial
 
 import config
-import utils
 
+from distributed_learning import utils
 from distributed_learning.server import SplitFedServer
 
 

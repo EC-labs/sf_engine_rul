@@ -1,6 +1,4 @@
 import torch
-import torch.nn as nn
-import torch.optim as optim
 import tqdm
 import time
 import numpy as np
@@ -10,9 +8,9 @@ import logging
 from typing import Type
 
 import config
-import utils
 
-from communicator import Communicator
+from .communicator import Communicator
+from . import utils
 
 
 logger = logging.getLogger(__name__)
@@ -91,7 +89,7 @@ class SplitFedClient:
         e_time_total = time.time()
         logger.info('Total time: ' + str(e_time_total - s_time_total))
 
-        training_time_pr = (e_time_total - s_time_total) / int((config.N / (config.K * config.B)))
+        training_time_pr = (e_time_total - s_time_total) / len(trainloader)
         logger.info('training_time_per_iteration: ' + str(training_time_pr))
 
         msg = ['MSG_TRAINING_TIME_PER_ITERATION', self.conn.ip, training_time_pr]

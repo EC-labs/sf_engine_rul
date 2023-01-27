@@ -19,10 +19,10 @@ logger.info('Preparing Server.')
 nn_unit = CreatorCNNEngine.nn_unit_create()
 nn_server_creator = CreatorCNNEngine.nn_server_create
 server = SplitFedServer(
-    '0.0.0.0', config.SERVER_PORT, nn_unit, torch.optim.SGD,
+    '0.0.0.0', config.SERVER_PORT, nn_unit, torch.optim.Adam,
     torch.nn.MSELoss(), nn_server_creator, split_layer
 )
-server.optimizer(lr=LR, momentum=0.9)
+server.optimizer(lr=LR)
 server.listen()
 time.sleep(20)
 

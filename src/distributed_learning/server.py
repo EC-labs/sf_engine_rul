@@ -8,18 +8,15 @@ import random
 import numpy as np
 import socket
 import time
-
 import logging
-
-import sys
-sys.path.append('../')
-import utils
-import config
 
 from typing import List, Dict, Type, Iterable, Dict, Any
 from dataclasses import dataclass
 
-from communicator import Communicator
+import config
+
+from .communicator import Communicator
+from . import utils
 
 
 logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')

@@ -6,7 +6,7 @@ import sys
 
 from distributed_learning.client import SplitFedClient
 import config
-import utils
+from distributed_learning import utils
 
 
 logger = logging.getLogger(__name__)

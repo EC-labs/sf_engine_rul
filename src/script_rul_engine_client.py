@@ -1,15 +1,14 @@
 import torch
 import time
 import multiprocessing
-import argparse
 import logging
 import sys
 
 from torch.utils.data import DataLoader
 
 import config
-import utils
 
+from distributed_learning import utils
 from distributed_learning.client import SplitFedClient
 from models.turbofan import CreatorCNNEngine 
 
@@ -35,9 +34,9 @@ dataloader_validation = DataLoader(dataset_valid, batch_size=config.B, shuffle=F
 
 client = SplitFedClient(
     config.SERVER_ADDR, config.SERVER_PORT, 'VGG5', split_layer, 
-    torch.nn.MSELoss(), torch.optim.SGD, neural_client
+    torch.nn.MSELoss(), torch.optim.Adam, neural_client
 )
-client.optimizer(lr=LR, momentum=0.9)
+client.optimizer(lr=LR)
 
 logger.info('Prepare Data')
 cpu_count = multiprocessing.cpu_count()
