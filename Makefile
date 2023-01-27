@@ -1,8 +1,12 @@
 SHELL = /bin/bash
 
-SRCDIR=src
-
 NCLIENTS=1
+PROGRAM=fedadapt
+
+ROOTDIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
+SRCDIR=$(ROOTDIR)/src
+
+SCRIPT=script_$(PROGRAM)
 GROUP_LABEL=group=sf_engine_rul
 NETWORK="fedadapt_network"
 IMAGE="fedadapt/base_image"
@@ -11,14 +15,18 @@ EXEC_TIME=$(shell date +'%Y-%m-%d_%H:%M:%S.%s')
 CONTAINER_LABELS=--label "$(GROUP_LABEL)"
 CONTAINER_NETWORK=--network $(NETWORK)
 COMMON_ENVIRONMENT=--env "NCLIENTS=$(NCLIENTS)"
-VOLUME_DATA=-v "$$(pwd)/data:/usr/src/app/data"
-VOLUME_RESULTS=-v "$$(pwd)/results:/usr/src/app/results"
+VOLUME_DATA=-v "$(ROOTDIR)/data:/usr/src/app/data"
+VOLUME_RESULTS=-v "$(ROOTDIR)/results:/usr/src/app/results"
+VOLUME_LOGS=-v "$(SRCDIR)/logs:/usr/src/app/logs"
 COMMON_FLAGS=--rm
 BASE_LOGS=$(SRCDIR)/logs
 LOGS_DIR=$(BASE_LOGS)/$(EXEC_TIME)
 
 .PHONY: clean_resources clean_logs clean \
 				create_network create_image run
+
+testing: 
+	echo $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
 run: create_image create_network
 		@mkdir -p "$(LOGS_DIR)"
@@ -27,20 +35,21 @@ run: create_image create_network
 			$(COMMON_FLAGS) \
 			$(COMMON_ENVIRONMENT) \
 			$(CONTAINER_NETWORK) \
-			$(VOLUME_RESULTS) $(VOLUME_DATA) \
+			$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
 			--name fedadapt_server \
-			$(IMAGE) distributed_learning.fedadapt_server_run 1>"$(LOGS_DIR)/server.log" 2>&1 &
+			$(IMAGE) $(SCRIPT)_server 1>"$(LOGS_DIR)/server.log" 2>&1 &
 		@sleep 3
+		ENGINES=(2 5 10 16 18 20); \
 		for i in $$(seq 0 $$(($(NCLIENTS) - 1))); do \
 			docker run \
 				$(CONTAINER_LABELS) \
 				$(COMMON_FLAGS) \
 				$(COMMON_ENVIRONMENT) \
 				$(CONTAINER_NETWORK) \
-				$(VOLUME_RESULTS) $(VOLUME_DATA) \
-				--env ENGINE=$$i \
+				$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
+				--env ENGINE=$${ENGINES[$$i]} \
 				--name fedadapt_client_$$i \
-				$(IMAGE) distributed_learning.fedadapt_client_run 1>"$(LOGS_DIR)/client_$$i.log" 2>&1 & \
+				$(IMAGE) $(SCRIPT)_client 1>"$(LOGS_DIR)/client_$$i.log" 2>&1 & \
 		done
 
 create_image: 

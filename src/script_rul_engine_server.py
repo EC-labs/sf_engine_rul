@@ -1,3 +1,4 @@
+import time
 import torch
 import pickle
 import logging
@@ -23,6 +24,7 @@ server = SplitFedServer(
 )
 server.optimizer(lr=LR, momentum=0.9)
 server.listen()
+time.sleep(20)
 
 res = {}
 res['training_time'], res['test_acc_record'], res['bandwidth_record'] = [], [], []

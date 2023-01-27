@@ -46,9 +46,6 @@ logger_console.addHandler(handler_file_console)
 logger_loss.addHandler(handler_stream_console)
 logger_loss.addHandler(handler_file_loss)
 
-logger_console.info("=== New Execution ===")
-logger_loss.info("=== New Execution ===")
-
 with open("models/turbofan.yml") as f:
     config_turbofan = yaml.safe_load(f)
 
