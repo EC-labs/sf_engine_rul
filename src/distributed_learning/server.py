@@ -4,7 +4,7 @@ import torch.optim as optim
 import torchvision.transforms as transforms
 import threading
 import tqdm
-import random
+import functools
 import numpy as np
 import socket
 import time
@@ -27,6 +27,10 @@ torch.manual_seed(0)
 
 
 class InitSplitFedServerException(Exception): 
+    pass
+
+
+class ThreadValidationException(Exception): 
     pass
 
 
@@ -57,7 +61,18 @@ class SplitFedServerThread:
             self.neural_network.parameters(), *args, **kwargs
         )
 
+    @property
+    def loss_validation(self): 
+        if not hasattr(self, "_loss_validation"): 
+            raise ThreadValidationException(
+                "Validation has not been executed after training"
+            )
+        return self._loss_validation
+
     def train_offloading(self):
+        if hasattr(self, "_loss_validation"): 
+            del self._loss_validation
+        self.neural_network.train()
         _, iterations_number = self.comm.recv_msg(
             expect_msg_type='CLIENT_TRAINING_ITERATIONS_NUMBER'
         )
@@ -79,6 +94,27 @@ class SplitFedServerThread:
         training_time = self.comm.recv_msg(
             expect_msg_type='MSG_TRAINING_TIME_PER_ITERATION'
         )
+
+    def validate(self): 
+        _, iterations_number = self.comm.recv_msg(
+            expect_msg_type='CLIENT_VALIDATION_ITERATIONS_NUMBER'
+        )
+        logger.debug(f"Number validation iterations: {iterations_number}")
+        loss_validation_total = 0
+        self.neural_network.eval()
+        with torch.no_grad(): 
+            for i in tqdm.tqdm(range(iterations_number)):
+                msg = self.comm.recv_msg('MSG_LOCAL_ACTIVATIONS_CLIENT_TO_SERVER')
+                smashed_layers = msg[1]
+                labels = msg[2]
+                inputs, targets = smashed_layers.to(self.device), labels.to(self.device)
+                self._optimizer.zero_grad()
+                outputs = self.neural_network(inputs)
+                loss = self.criterion(outputs, targets)
+                loss_validation_total += loss.item()
+        self._loss_validation = loss_validation_total 
+
+
 
 
 class SplitFedServer: 
@@ -144,10 +180,8 @@ class SplitFedServer:
             target=self._listen, name="thread_listen"
         )
         self.thread_listen.start()
-        logger.info("here")
 
     def _train(self): 
-        self.global_weights_send()
         threads_training = [
             threading.Thread(
                 target=t.train_offloading, 
@@ -162,6 +196,8 @@ class SplitFedServer:
             t.join()
         logger.debug("End threads training")
         self.aggregate()
+        self._weights_nn_unit_send(self.threads)
+        self._validate()
 
     def train(self, min_clients=1):
         self._add_pending_clients()
@@ -174,7 +210,17 @@ class SplitFedServer:
     def _add_pending_clients(self): 
         with self.pending_lock: 
             self.threads.extend(self.pending_clients)
+            list_clients_init = self.pending_clients
             self.pending_clients = []
+        self._weights_nn_unit_send(list_clients_init)
+
+    def _weights_nn_unit_send(self, list_client_threads): 
+        msg = [
+            'MSG_INITIAL_GLOBAL_WEIGHTS_SERVER_TO_CLIENT', 
+            self.neural_network_unit.state_dict(),
+        ]
+        for client_thread in list_client_threads: 
+            client_thread.comm.send_msg(msg)
 
     def aggregate(self): 
         list_weights_concat = []
@@ -194,6 +240,25 @@ class SplitFedServer:
         )
         self.neural_network_unit.load_state_dict(aggregated_model)
 
+    def _validate(self): 
+        threads_training = [
+            threading.Thread(
+                target=t.validate, 
+                name=f"thread_validate_{i}"
+            ) 
+            for i, t in enumerate(self.threads)
+        ]
+        logger.debug("Start threads validation")
+        for t in threads_training: 
+            t.start()
+        for t in threads_training: 
+            t.join()
+        total_validation_loss = functools.reduce(
+            lambda acc, x: x.loss_validation+acc, self.threads, 0
+        )
+        logger.debug("End threads validation")
+
+
     def test(self, testloader): 
         self.neural_network_unit.eval()
         with torch.no_grad(): 
@@ -209,13 +274,3 @@ class SplitFedServer:
                 correct += predicted.eq(targets).sum().item()
         acc = 100.*correct/total
         logger.info(f"Test Accuracy: {acc}")
-
-    def global_weights_send(self):
-        msg = [
-            'MSG_INITIAL_GLOBAL_WEIGHTS_SERVER_TO_CLIENT', 
-            self.neural_network_unit.state_dict(),
-        ]
-        logger.debug("Send global weights")
-        for thread in self.threads: 
-            thread.comm.send_msg(msg)
-

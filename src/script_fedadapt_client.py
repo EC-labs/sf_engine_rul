@@ -38,11 +38,3 @@ logger.info("Start Training")
 for r in range(config.R):
     logger.info(f'ROUND {r} START')
     training_time = client.train(trainloader)
-
-    logger.info("Weights upload")
-    client.weights_upload()
-    s_time_rebuild = time.time()
-    logger.info("Weights receive")
-    client.weights_receive()
-    e_time_rebuild = time.time()
-    logger.info(f'Rebuild time: {e_time_rebuild - s_time_rebuild}')

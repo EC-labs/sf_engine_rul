@@ -18,7 +18,7 @@ COMMON_ENVIRONMENT=--env "NCLIENTS=$(NCLIENTS)"
 VOLUME_DATA=-v "$(ROOTDIR)/data:/usr/src/app/data"
 VOLUME_RESULTS=-v "$(ROOTDIR)/results:/usr/src/app/results"
 VOLUME_LOGS=-v "$(SRCDIR)/logs:/usr/src/app/logs"
-COMMON_FLAGS=--rm
+COMMON_FLAGS=--rm --shm-size 4G
 BASE_LOGS=$(SRCDIR)/logs
 LOGS_DIR=$(BASE_LOGS)/$(EXEC_TIME)
 

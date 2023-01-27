@@ -18,4 +18,5 @@ docker run \
   -v "${script_directory}/logs:/usr/src/app/logs" \
   --env "ENGINE=20" \
   --name fedadapt_client \
+  --shm-size 4G \
   fedadapt/base_image "script_rul_engine_client"

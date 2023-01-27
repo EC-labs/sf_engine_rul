@@ -35,4 +35,3 @@ for r in range(config.R):
 
     with open(config.home + '/results/FedAdapt_res.pkl','wb') as f:
         pickle.dump(res,f)
-

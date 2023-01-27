@@ -5,12 +5,12 @@ import numpy as np
 import sys
 import logging
 
-from typing import Type
+from typing import Type, Optional
 
 import config
 
-from .communicator import Communicator
 from . import utils
+from .communicator import Communicator
 
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ class SplitFedClient:
         logger.info('Connecting to Server.')
         self.conn = Communicator()
         self.conn.connect((server_addr, server_port))
-        self.weights_receive()
+        self._weights_receive()
 
 
     def optimizer(self, *args, **kwargs): 
@@ -54,25 +54,19 @@ class SplitFedClient:
             self.neural_network.parameters(), *args, **kwargs
         )
 
-    def weights_receive(self):
-        logger.debug('Receive Global Weights..')
-        weights = self.conn.recv_msg()[1]
-        pweights = utils.split_weights_client(weights, self.neural_network.state_dict())
-        self.neural_network.load_state_dict(pweights)
-
-    def train(self, trainloader):
+    def train(self, dataloader_train, dataloader_validate=None):
         try: 
             assert hasattr(self, "_optimizer")
         except: 
             logger.exception("Optimizer has not been initialized.")
             raise
-        msg = ['CLIENT_TRAINING_ITERATIONS_NUMBER', len(trainloader)]
-        self.conn.send_msg(msg)
 
+        msg = ['CLIENT_TRAINING_ITERATIONS_NUMBER', len(dataloader_train)]
+        self.conn.send_msg(msg)
         s_time_total = time.time()
         self.neural_network.to(self.device)
         self.neural_network.train()
-        for batch_idx, (inputs, targets) in enumerate(tqdm.tqdm(trainloader)):
+        for batch_idx, (inputs, targets) in enumerate(tqdm.tqdm(dataloader_train)):
             inputs, targets = inputs.to(self.device), targets.to(self.device)
             self._optimizer.zero_grad()
             outputs = self.neural_network(inputs)
@@ -85,18 +79,41 @@ class SplitFedClient:
                 loss = self.criterion(outputs, targets)
                 loss.backward()
             self._optimizer.step()
-
         e_time_total = time.time()
         logger.info('Total time: ' + str(e_time_total - s_time_total))
-
-        training_time_pr = (e_time_total - s_time_total) / len(trainloader)
+        training_time_pr = (e_time_total - s_time_total) / len(dataloader_train)
         logger.info('training_time_per_iteration: ' + str(training_time_pr))
-
         msg = ['MSG_TRAINING_TIME_PER_ITERATION', self.conn.ip, training_time_pr]
         self.conn.send_msg(msg)
-
+        self._weights_upload()
+        self._weights_receive()
+        self._validate(dataloader_validate)
         return e_time_total - s_time_total
         
-    def weights_upload(self):
+    def _validate(
+        self, dataloader_validate: Optional[torch.utils.data.DataLoader] = None
+    ): 
+        iter_validate = (len(dataloader_validate) 
+            if dataloader_validate != None else 0
+        )
+        msg = ['CLIENT_VALIDATION_ITERATIONS_NUMBER', iter_validate]
+        self.conn.send_msg(msg)
+        self.neural_network.eval() 
+        if iter_validate == 0: 
+            return
+        with torch.no_grad(): 
+            for inputs, targets in tqdm.tqdm(dataloader_validate):
+                outputs = self.neural_network(inputs)
+                msg = ['MSG_LOCAL_ACTIVATIONS_CLIENT_TO_SERVER', outputs.cpu(), targets.cpu()]
+                self.conn.send_msg(msg)
+
+    def _weights_upload(self):
         msg = ['MSG_LOCAL_WEIGHTS_CLIENT_TO_SERVER', self.neural_network.cpu().state_dict()]
         self.conn.send_msg(msg)
+
+    def _weights_receive(self):
+        logger.debug('Receive Global Weights..')
+        weights = self.conn.recv_msg()[1]
+        pweights = utils.split_weights_client(weights, self.neural_network.state_dict())
+        self.neural_network.load_state_dict(pweights)
+
