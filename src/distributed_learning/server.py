@@ -89,6 +89,8 @@ class SplitFedServer:
 
     sock: socket.socket
     threads: List[SplitFedServerThread]
+    pending_clients: List[SplitFedServerThread]
+    pending_lock: threading.Lock
     cls_optimizer: Type[torch.optim.Optimizer]
     struct_optimizer_constructor: StructOptimizerConstructor
     thread_listen: threading.Thread
@@ -104,6 +106,8 @@ class SplitFedServer:
         self.neural_network_unit = neural_network_unit
         self.cls_optimizer = cls_optimizer
         self.threads = []
+        self.pending_clients = []
+        self.pending_lock = threading.Lock()
         self.criterion = criterion
         self.nn_server_creator = nn_server_creator
         self.split_layer = split_layer
@@ -123,7 +127,8 @@ class SplitFedServer:
             *self.struct_optimizer_constructor.args,
             **self.struct_optimizer_constructor.kwargs,
         )
-        self.threads.append(thread_sf)
+        with self.pending_lock:
+            self.pending_clients.append(thread_sf)
 
     def _listen(self): 
         logger.info("Ready to connect")
@@ -144,10 +149,7 @@ class SplitFedServer:
         self.thread_listen.start()
         logger.info("here")
 
-    def train(self, min_clients=1, epochs=10):
-        while len(self.threads) < min_clients: 
-            logger.info("Not enough clients connected")
-            time.sleep(2)
+    def _train(self): 
         self.global_weights_send()
         threads_training = [
             threading.Thread(
@@ -163,6 +165,19 @@ class SplitFedServer:
             t.join()
         logger.debug("End threads training")
         self.aggregate()
+
+    def train(self, min_clients=1):
+        self._add_pending_clients()
+        while len(self.threads) < min_clients: 
+            logger.info("Not enough clients connected")
+            self._add_pending_clients()
+            time.sleep(2)
+        self._train()
+
+    def _add_pending_clients(self): 
+        with self.pending_lock: 
+            self.threads.extend(self.pending_clients)
+            self.pending_clients = []
 
     def aggregate(self): 
         list_weights_concat = []
