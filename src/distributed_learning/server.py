@@ -13,8 +13,6 @@ import logging
 from typing import List, Dict, Type, Iterable, Dict, Any
 from dataclasses import dataclass
 
-import config
-
 from .communicator import Communicator
 from . import utils
 
@@ -77,12 +75,14 @@ class SplitFedServerThread:
             expect_msg_type='CLIENT_TRAINING_ITERATIONS_NUMBER'
         )
         logger.debug(f"Number training iterations: {iterations_number}")
+        self.inputs_total = 0
         for i in tqdm.tqdm(range(iterations_number)):
             msg = self.comm.recv_msg('MSG_LOCAL_ACTIVATIONS_CLIENT_TO_SERVER')
             smashed_layers = msg[1]
             labels = msg[2]
 
             inputs, targets = smashed_layers.to(self.device), labels.to(self.device)
+            self.inputs_total += inputs.size()[0]
             self._optimizer.zero_grad()
             outputs = self.neural_network(inputs)
             loss = self.criterion(outputs, targets)
@@ -224,6 +224,9 @@ class SplitFedServer:
 
     def aggregate(self): 
         list_weights_concat = []
+        distributed_inputs_total = functools.reduce(
+            lambda acc, x: x.inputs_total + acc, self.threads, 0
+        )
         for thread in self.threads: 
             _, weights_client = thread.comm.recv_msg(
                 expect_msg_type='MSG_LOCAL_WEIGHTS_CLIENT_TO_SERVER'
@@ -233,10 +236,12 @@ class SplitFedServer:
                 weights_client,
                 thread.neural_network.state_dict(),
             )
-            list_weights_concat.append((weights_concat, config.N/config.K))
+            list_weights_concat.append((
+                weights_concat, thread.inputs_total/distributed_inputs_total
+            ))
         zero_model = utils.zero_init(self.neural_network_unit).state_dict()
         aggregated_model = utils.fed_avg(
-            zero_model, list_weights_concat, config.N
+            zero_model, list_weights_concat
         )
         self.neural_network_unit.load_state_dict(aggregated_model)
 
@@ -254,9 +259,9 @@ class SplitFedServer:
         for t in threads_training: 
             t.join()
         total_validation_loss = functools.reduce(
-            lambda acc, x: x.loss_validation+acc, self.threads, 0
+            lambda acc, x: x.loss_validation + acc, self.threads, 0
         )
-        logger.debug("End threads validation")
+        logger.info(f"Validation loss: {total_validation_loss}")
 
 
     def test(self, testloader): 

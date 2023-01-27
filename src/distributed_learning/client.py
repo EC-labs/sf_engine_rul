@@ -7,8 +7,6 @@ import logging
 
 from typing import Type, Optional
 
-import config
-
 from . import utils
 from .communicator import Communicator
 
@@ -70,14 +68,10 @@ class SplitFedClient:
             inputs, targets = inputs.to(self.device), targets.to(self.device)
             self._optimizer.zero_grad()
             outputs = self.neural_network(inputs)
-            if self.neural_network.split_layer != (config.model_len-1):
-                msg = ['MSG_LOCAL_ACTIVATIONS_CLIENT_TO_SERVER', outputs.cpu(), targets.cpu()]
-                self.conn.send_msg(msg)
-                gradients = self.conn.recv_msg()[1].to(self.device)
-                outputs.backward(gradients)
-            else: 
-                loss = self.criterion(outputs, targets)
-                loss.backward()
+            msg = ['MSG_LOCAL_ACTIVATIONS_CLIENT_TO_SERVER', outputs.cpu(), targets.cpu()]
+            self.conn.send_msg(msg)
+            gradients = self.conn.recv_msg()[1].to(self.device)
+            outputs.backward(gradients)
             self._optimizer.step()
         e_time_total = time.time()
         logger.info('Total time: ' + str(e_time_total - s_time_total))

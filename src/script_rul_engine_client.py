@@ -23,7 +23,7 @@ logger.addHandler(handler_console)
 
 index = 0
 datalen = 10
-split_layer = config.split_layer[index]
+split_layer = config.split_layer
 LR = config.LR
 
 logger.info('Prepare Data')

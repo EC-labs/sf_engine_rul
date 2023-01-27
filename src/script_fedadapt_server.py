@@ -14,16 +14,10 @@ from distributed_learning import utils
 from distributed_learning.server import SplitFedServer
 
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-parser=argparse.ArgumentParser()
-parser.add_argument('--offload', help='FedAdapt or classic FL mode', type=utils.str2bool, default=False)
-args=parser.parse_args()
-
 LR = config.LR
-offload = args.offload
-split_layer = 3 
+split_layer = config.split_layer
 
 transform_test = transforms.Compose([
     transforms.ToTensor(),

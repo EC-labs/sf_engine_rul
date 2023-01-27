@@ -40,14 +40,14 @@ model_name = 'VGG5'
 model_size = 1.28
 model_flops = 32.902
 total_flops = 8488192
-split_layer = [3, 3, 3, 3, 3] #Initial split layers
+split_layer = 2 #Initial split layers
 model_len = 7
 
 
 # FL training configration
 R = 100 # FL rounds
 LR = 0.01 # Learning rate
-B = 1000 # Batch size
+B = 512 # Batch size
 
 
 # RL training configration

@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 LR = config.LR
-split_layer = 3 
+split_layer = config.split_layer
 
 logger.info('Preparing Server.')
 nn_unit = CreatorCNNEngine.nn_unit_create()

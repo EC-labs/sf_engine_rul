@@ -98,25 +98,14 @@ def zero_init(net):
                 init.zeros_(m.bias)
     return net
 
-def fed_avg(zero_model, w_local_list, totoal_data_size):
+def fed_avg(zero_model, w_local_list):
     keys = w_local_list[0][0].keys()
     
     for k in keys:
         for w in w_local_list:
-            beta = float(w[1]) / float(totoal_data_size)
             if 'num_batches_tracked' in k:
                 zero_model[k] = w[0][k]
-            else:    
-                zero_model[k] += (w[0][k] * beta)
+            else:
+                zero_model[k] += (w[0][k] * w[1])
 
     return zero_model
-
-def str2bool(v):
-    if isinstance(v, bool):
-       return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
-        return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-        return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
