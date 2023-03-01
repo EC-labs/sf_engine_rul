@@ -19,6 +19,7 @@ import config
 
 from . import FactoryModelDatasets
 
+print("imported packages") 
 
 logger_console = logging.getLogger(__name__)
 logger_console.propagate = False
@@ -51,6 +52,8 @@ with open("models/turbofan.yml") as f:
 
 loss_function = torch.nn.MSELoss()
 
+print("Finished all import stuff")
+
 def read_in_data(
     filename: str,
     frequency: int,
@@ -72,7 +75,7 @@ def read_in_data(
     """
 
     with h5py.File(filename, 'r') as hdf:
-        # Development set
+        # Development setma
         W_dev = np.array(hdf.get('W_dev'))             # W
         X_s_dev = np.array(hdf.get('X_s_dev'))         # X_s
         X_v_dev = np.array(hdf.get('X_v_dev'))         # X_v
@@ -190,14 +193,12 @@ class CreatorCNNTurbofan(FactoryModelDatasets):
         np.random.seed(seed)
         torch.manual_seed(seed)
 
-        df_turbofan, all_fc = read_in_data(
-            "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5",
-            frequency, X_v_to_keep, X_s_to_keep, True, True
-        )
+        df_turbofan, all_fc = read_in_data("data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5", frequency, X_v_to_keep, X_s_to_keep, True, True)
         df_turbofan = df_turbofan.drop(columns = ["hs"])
         all_variables_x = X_v_to_keep + X_s_to_keep + all_fc
         units = np.unique(df_turbofan.loc[:, "unit"])
 
+        
         dict_training_flights = {}
         dict_validation_flights = {}
 
@@ -213,18 +214,60 @@ class CreatorCNNTurbofan(FactoryModelDatasets):
             dict_training_flights[unit] = training_flights
             dict_validation_flights[unit] = validation_flights
 
+        #FInd the minimum and maximum sensor measurement of the training set 
+        #Make a dataframe with all training data 
+        all_training_data = pd.DataFrame(columns = df_turbofan.columns)
+       
+        for unit in np.unique(df_turbofan.loc[:, "unit"]):
+            data_engine = df_turbofan.loc[df_turbofan["unit"] == unit, :]
+            flights = np.unique(data_engine["cycle"])
+            nr_flights = len(flights)
+
+            for flight in flights:
+                if flight not in dict_training_flights[unit]:
+                    continue
+                data_flight = data_engine.loc[data_engine["cycle"] == flight]
+                all_training_data = pd.concat([all_training_data, data_flight], ignore_index = True)
+                        
+        minimum, maximum = min_max_training(all_training_data) 
+        del all_training_data 
+
         dataset_train = TurbofanSimulationDataset(
             df_turbofan, stepsize_sample, all_variables_x,
-            considered_length, dict_training_flights
+            considered_length, dict_training_flights, minimum, maximum
         )
         dataset_valid = TurbofanSimulationDataset(
             df_turbofan, stepsize_sample, all_variables_x,
-            considered_length, dict_validation_flights
+            considered_length, dict_validation_flights, minimum, maximum
         )
+
+        #Make the test data set 
+        #Step 1: read in all test data (first False: we get the test data )
+        df_turbofan_test, all_fc_test = read_in_data(
+            "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5",
+            frequency, X_v_to_keep, X_s_to_keep, False, True
+        )
+        df_turbofan_test = df_turbofan_test.drop(columns = ["hs"])
+        test_units = np.unique(df_turbofan_test.loc[:, "unit"])
+
+        #Step 2. Make a dictionary with all flights of all testing units 
+        dict_test_flights = {} 
+        for unit in test_units:
+            last_flight = int(max(df_turbofan_test.loc[df_turbofan_test["unit"] == unit, "cycle"]))
+            all_flights = list(range(1, last_flight + 1, 1))
+            dict_test_flights[unit] = all_flights
+
+        #Step 3. Make the test dataset  
+        dataset_test = TurbofanSimulationDataset(
+            df_turbofan_test, stepsize_sample, all_variables_x,
+            considered_length, dict_test_flights, minimum, maximum
+        )
+
+        
         neural_client = CNNRUL(config_model, "Client")
         return (
             neural_client,
-            {"train": dataset_train, "validation": dataset_valid}
+            {"train": dataset_train, "validation": dataset_valid, "test": dataset_test, "test_units" : dict_test_flights}
         )
 
 
@@ -279,15 +322,34 @@ class CreatorCNNEngine(FactoryModelDatasets):
             dict_training_flights[unit] = training_flights
             dict_validation_flights[unit] = validation_flights
 
+        #FInd the minimum and maximum sensor measurement of the training set 
+        #Make a dataframe with all training data 
+        all_training_data = pd.DataFrame(columns = df_turbofan.columns)
+       
+        for unit in np.unique(df_turbofan.loc[:, "unit"]):
+            data_engine = df_turbofan.loc[df_turbofan["unit"] == unit, :]
+            flights = np.unique(data_engine["cycle"])
+            nr_flights = len(flights)
+
+            for flight in flights:
+                if flight not in dict_training_flights[unit]:
+                    continue
+                data_flight = data_engine.loc[data_engine["cycle"] == flight]
+                all_training_data.append(data_flight)
+                        
+        minimum, maximum = min_max_training(all_training_data) 
+        del all_training_data 
 
         dataset_train = EngineSimulationDataset(
             ENGINE, df_turbofan, stepsize_sample, all_variables_x,
-            considered_length, dict_training_flights
+            considered_length, dict_training_flights, minimum, maximum
         )
         dataset_valid = EngineSimulationDataset(
             ENGINE, df_turbofan, stepsize_sample, all_variables_x,
-            considered_length, dict_validation_flights
+            considered_length, dict_validation_flights, minimum, maximum 
         )
+
+
         neural_client = CNNRUL(config_model, "Client")
         return (
             neural_client,
@@ -312,6 +374,8 @@ class TurbofanSimulationDataset(Dataset):
         all_variables_x: List[str],
         considered_length: int,
         considered_flights: Dict[int, List[int]],
+        minimum: float,
+        maximum: float
     ):
         """Initialize the TurbofanSimulation Dataset class.
 
@@ -339,6 +403,9 @@ class TurbofanSimulationDataset(Dataset):
         self.all_data = all_data
         self.all_variables_x = all_variables_x
         self.considered_length = considered_length
+
+        self.minimum = minimum 
+        self.maximum = maximum 
 
         self.sample_index = []
         self.unit_flight_sample_indices = {}
@@ -371,8 +438,8 @@ class TurbofanSimulationDataset(Dataset):
                 )
 
     def _pre_processing(self):
-        minimum, maximum = min_max_training(self.all_data)
-        self.all_data = normalization(self.all_data, minimum, maximum)
+        #minimum, maximum = min_max_training(self.all_data)
+        self.all_data = normalization(self.all_data, self.minimum, self.maximum)
 
     def _add_flight_indices(self, engine, flight, indices):
         if engine not in self.unit_flight_sample_indices:
@@ -444,12 +511,14 @@ def train_one_epoch(
                 predicted = neural_client(sample_x)
                 predicted = neural_server(predicted)
                 predicted = predicted.squeeze(1)
+                RUL = RUL.squeeze(1) #same shape in loss function
                 loss = loss_function(RUL, predicted)
                 running_loss = running_loss + loss.item()
         else:
             predicted = neural_client(sample_x)
             predicted = neural_server(predicted)
             predicted = predicted.squeeze(1)
+            RUL = RUL.squeeze(1) #same shape in loss function
             loss = loss_function(RUL, predicted)
             running_loss = running_loss + loss.item()
             optimizer.zero_grad()
@@ -538,7 +607,8 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
     config_model = config_turbofan["models"][0]
 
     neural_client, training_partitions = CreatorCNNTurbofan.create_model_datasets()
-    dataset_train, dataset_valid = training_partitions["train"], training_partitions["validation"]
+    dataset_train, dataset_valid, dataset_test, test_units = training_partitions["train"], training_partitions["validation"], training_partitions["test"], training_partitions["test_units"] 
+    del dataset_test, test_units
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
     dataloader_validation = DataLoader(dataset_valid, batch_size = batch_size, shuffle = False)
 
@@ -575,6 +645,9 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
                 f"Best validation loss: {best_validation_loss}"
             )
             torch.save(copy.deepcopy(neural_client.state_dict()), nn_path)
+            #maybe we can also save the server model here? For the testing later on?
+            #Or should we do that where wwe average the weights of the different clients? (I haven't been able to locate that spot in our code yet) 
+
 
         time_it_took =  time.time() - start_time_epochs
         logger_console.info(f"Epoch duration: {time_it_took}")
@@ -584,4 +657,79 @@ def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
     logger_loss.info('Validation loss')
     logger_loss.info(all_validation_losses)
 
-# main_function("cnn_weights", "Losses", "Graph", "console")
+
+# def test_nn():
+#     #something very similar as above: We get the test data, make the neural network, load the weigths, and do one partition
+#     config_model = config_turbofan["models"][0]
+    
+#     #Get the test data 
+#     neural_client, training_partitions = CreatorCNNTurbofan.create_model_datasets()
+#     dataset_train, dataset_valid, dataset_test, test_units = training_partitions["train"], training_partitions["validation"], training_partitions["test"], training_partitions["test_untis"] 
+#     del dataset_train, dataset_valid 
+
+#     #make one neural network that is on the server (so without any clients, just all layers from input to output) (Not reaally sure ho =w to do this)
+#     #Later on, I call this neural network "neural" 
+#     #before: neural = CNNRUL(num layers etc.) 
+#     #We can also make two neural networks, and then below, pass the input through both (under "with torch.no_grad()")
+    
+
+#     #Load the weights on this neural network 
+#     #Before: neural.load_state_dict(torch.load(weights))
+    
+#     #Test the neural network :) 
+#     MSE = 0 
+#     MAE = 0 
+#     points = 0 
+
+#     for unit in test_units.keys():
+#         print("\n the test unit is " , unit) 
+
+#         MSE_unit = 0 
+#         MAE_unit = 0 
+#         last_flight = int(max(test_units.get(unit))) 
+
+#         for flight in range(1, last_flight + 1,1):
+#             print("the flight is " ,flight) 
+
+#             mean_RUL_prediction = 0 
+
+#             #Get alls amples belonging to this unit and flight
+#             #Great that you kept this function :) 
+#             all_samples = dataset_test.get_all_samples((unit, flight))
+#             num_samples = len(all_samples)
+
+#             #Get the RUL prediciton for each samples
+#             for s in all_samples:
+#                 data_sample = dataset_test.__getitem__(s)
+#                 true_RUL = data_sample[1] 
+#                 inp = data_sample[0] 
+#                 inp = torch.tensor(inp) 
+#                 with torch.no_grad():
+#                     predicted = neural_network(inp)
+#                     #we can also first pass it through the aggregated client neural network, and then through the server 
+                                    
+#                 mean_RUL_prediction = mean_RUL_prediction + predicted[0][0] #Let's see if it still takes this form!
+            
+#             #Get the prediction and the metrics
+#             mean_RUL_prediction = mean_RUL_prediction / num_samples
+#             error = mean_RUL_prediction - true_RUL 
+#             MAE_unit = MAE_unit + abs(error)
+#             MSE_unit = MSE_unit + error**2 
+
+#         #Update the grand total
+#         MAE = MAE + MAE_unit
+#         MSE = MSE + MSE_unit
+#         points = points + last_flight 
+
+#         #Get the total MSE/MAE for the unit 
+#         MAE_unit = MAE_unit / last_flight
+#         RMSE_unit = math.sqrt(MSE_unit / last_flight)
+#         print("For unit " , unit, " the MAE is " , MAE_unit, " and the RMSE is " , RMSE_unit)
+
+#     #Get the grand total
+#     MAE = MAE / points
+#     RMSE = math.sqrt(MSE/points)
+#     print("In total, the MAE is " , MAE, " and the RMSE is " , RMSE)
+
+
+#main_function("cnn_weights", "Losses", "Graph", "console")
