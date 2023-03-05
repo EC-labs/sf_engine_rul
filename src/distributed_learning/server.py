@@ -108,7 +108,6 @@ class SplitFedServerThread:
                 smashed_layers = msg[1]
                 labels = msg[2]
                 inputs, targets = smashed_layers.to(self.device), labels.to(self.device)
-                self._optimizer.zero_grad()
                 outputs = self.neural_network(inputs)
                 loss = self.criterion(outputs, targets)
                 loss_validation_total += loss.item()

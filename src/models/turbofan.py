@@ -9,8 +9,9 @@ import os
 import logging
 import sys
 import yaml
+import functools
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from torch.utils.data import Dataset, random_split, DataLoader
 from pandas import DataFrame
 from torch import nn
@@ -139,7 +140,7 @@ def read_in_data(
                 )
                 all_data_shortened = pd.concat([all_data_shortened, means], axis = 0)
         del all_data
-        all_data_shortened = all_data_shortened.drop(columns = ["index"])
+        all_data_shortened = all_data_shortened.drop(columns=["index"]).reset_index()
         return all_data_shortened, W_var
 
     return all_data, W_var
@@ -212,19 +213,43 @@ class CreatorCNNTurbofan(FactoryModelDatasets):
             training_flights =  set(all_flights) - set(validation_flights)
             dict_training_flights[unit] = training_flights
             dict_validation_flights[unit] = validation_flights
-
         dataset_train = TurbofanSimulationDataset(
             df_turbofan, stepsize_sample, all_variables_x,
             considered_length, dict_training_flights
         )
+        train_minima, train_maxima = dataset_train.minima, dataset_train.maxima
         dataset_valid = TurbofanSimulationDataset(
             df_turbofan, stepsize_sample, all_variables_x,
-            considered_length, dict_validation_flights
+            considered_length, dict_validation_flights, 
+            train_minima, train_maxima
         )
-        neural_client = CNNRUL(config_model, "Client")
+
+        df_turbofan_test, _ = read_in_data(
+            "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5",
+            frequency, X_v_to_keep, X_s_to_keep, False, True
+        )
+        df_turbofan_test = df_turbofan_test.drop(columns = ["hs"])
+        test_units = np.unique(df_turbofan_test.loc[:, "unit"])
+
+        dict_test_flights = {} 
+        for unit in test_units:
+            last_flight = int(max(df_turbofan_test.loc[df_turbofan_test["unit"] == unit, "cycle"]))
+            all_flights = list(range(1, last_flight+1, 1))
+            dict_test_flights[unit] = all_flights
+
+        dataset_test = TurbofanSimulationDataset(
+            df_turbofan_test, stepsize_sample, all_variables_x,
+            considered_length, dict_test_flights, train_minima, train_maxima
+        )
+
+        neural = CNNRUL(config_model, "Unit")
         return (
-            neural_client,
-            {"train": dataset_train, "validation": dataset_valid}
+            neural,
+            {
+                "train": dataset_train, 
+                "validation": dataset_valid, 
+                "test": dataset_test,
+            }
         )
 
 
@@ -284,14 +309,38 @@ class CreatorCNNEngine(FactoryModelDatasets):
             ENGINE, df_turbofan, stepsize_sample, all_variables_x,
             considered_length, dict_training_flights
         )
+        train_minima, train_maxima = dataset_train.minima, dataset_train.maxima
         dataset_valid = EngineSimulationDataset(
             ENGINE, df_turbofan, stepsize_sample, all_variables_x,
-            considered_length, dict_validation_flights
+            considered_length, dict_validation_flights, 
+            train_minima, train_maxima
+        )
+
+        df_turbofan_test, _ = read_in_data(
+            "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5",
+            frequency, X_v_to_keep, X_s_to_keep, False, True
+        )
+        df_turbofan_test = df_turbofan_test.drop(columns = ["hs"])
+        test_units = np.unique(df_turbofan_test.loc[:, "unit"])
+
+        dict_test_flights = {} 
+        for unit in test_units:
+            last_flight = int(max(df_turbofan_test.loc[df_turbofan_test["unit"] == unit, "cycle"]))
+            all_flights = list(range(1, last_flight+1, 1))
+            dict_test_flights[unit] = all_flights
+
+        dataset_test = EngineSimulationDataset(
+            df_turbofan_test, stepsize_sample, all_variables_x,
+            considered_length, dict_test_flights, train_minima, train_maxima
         )
         neural_client = CNNRUL(config_model, "Client")
         return (
             neural_client,
-            {"train": dataset_train, "validation": dataset_valid}
+            {
+                "train": dataset_train, 
+                "validation": dataset_valid,
+                "test": dataset_test,
+            }
         )
 
 
@@ -312,6 +361,8 @@ class TurbofanSimulationDataset(Dataset):
         all_variables_x: List[str],
         considered_length: int,
         considered_flights: Dict[int, List[int]],
+        dict_minima: Optional[dict] = None, 
+        dict_maxima: Optional[dict] = None, 
     ):
         """Initialize the TurbofanSimulation Dataset class.
 
@@ -334,9 +385,11 @@ class TurbofanSimulationDataset(Dataset):
             considered_flights: Dictionary holding for each unit, the list of
                 flights which are to be taken into consideration from the whole
                 DataFrame in the initialized Dataset.
+            dict_minima: dictionary of the minima for each column. 
+            dict_maxima: dictionary of the maxima for each column.
         """
 
-        self.all_data = all_data
+        self.all_data = all_data.copy()
         self.all_variables_x = all_variables_x
         self.considered_length = considered_length
 
@@ -344,7 +397,7 @@ class TurbofanSimulationDataset(Dataset):
         self.unit_flight_sample_indices = {}
 
         self._create_samples(considered_flights, stepsize_sample, considered_length)
-        self._pre_processing()
+        self._pre_processing(dict_minima, dict_maxima)
 
     def _create_samples(
         self, considered_flights: dict, stepsize_sample: int, considered_length: int
@@ -369,10 +422,11 @@ class TurbofanSimulationDataset(Dataset):
                     unit, flight,
                     [len(self.sample_index)-nr_streams, len(self.sample_index)]
                 )
-
-    def _pre_processing(self):
-        minimum, maximum = min_max_training(self.all_data)
-        self.all_data = normalization(self.all_data, minimum, maximum)
+    def _pre_processing(self, minima, maxima):
+        if (not minima) or (not maxima):
+            minima, maxima = min_max_training(self.all_data)
+        self.__minima, self.__maxima = minima, maxima
+        self.all_data = normalization(self.all_data, self.__minima, self.__maxima)
 
     def _add_flight_indices(self, engine, flight, indices):
         if engine not in self.unit_flight_sample_indices:
@@ -387,6 +441,14 @@ class TurbofanSimulationDataset(Dataset):
         """
 
         return len(self.sample_index)
+
+    @property
+    def minima(self): 
+        return self.__minima
+
+    @property
+    def maxima(self): 
+        return self.__maxima
 
     def get_all_samples(self, sample):
         """Get all measurement streams for a (unit, flight) tuple."""
@@ -419,51 +481,69 @@ class EngineSimulationDataset(TurbofanSimulationDataset):
 
     def __init__(self, engine, all_data, *args, **kwargs):
         self.engine = engine
-        self.flight_indices = {}
         all_data = all_data.loc[all_data["unit"] == engine, :].copy()
         super().__init__(all_data, *args, **kwargs)
-        del self.unit_flight_sample_indices
 
-    def _add_flight_indices(self, engine, flight, indices):
-        self.flight_indices[flight] = indices
 
-    def get_all_samples(self, flight):
-        return range(*self.flight_indices[flight])
-
+def validate(neural, dataloader_validation): 
+    import tqdm
+    loss_sum = 0
+    len_dataset = len(dataloader_validation.dataset)
+    with torch.no_grad(): 
+        for inputs, targets in tqdm.tqdm(
+            dataloader_validation,
+            bar_format='{l_bar}{bar:20}{r_bar}{bar:-10b}'
+        ): 
+            outputs = neural(inputs)
+            loss_sum += torch.sum((targets-outputs)**2).item()
+    MSE = loss_sum/len_dataset
+    RMSE = math.sqrt(MSE)
+    logger_console.info(f"MSE: {MSE} \t RMSE: {RMSE}")
 
 def train_one_epoch(
-    neural_client, neural_server, loss_function,
-    optimizer, data_loader, in_training
-):
-    running_loss = 0.
-    num_batches = len(data_loader)
-    for i, (sample_x, RUL) in enumerate(data_loader):
-        logger_console.info(f"Batch {i}/{num_batches}")
-        if in_training == False:
-            with torch.no_grad():
-                predicted = neural_client(sample_x)
-                predicted = neural_server(predicted)
-                predicted = predicted.squeeze(1)
-                loss = loss_function(RUL, predicted)
-                running_loss = running_loss + loss.item()
-        else:
-            predicted = neural_client(sample_x)
-            predicted = neural_server(predicted)
-            predicted = predicted.squeeze(1)
-            loss = loss_function(RUL, predicted)
-            running_loss = running_loss + loss.item()
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-    return running_loss
+    neural, dataloader_train, optimizer, loss_criterion
+): 
+    import tqdm
+    for (inputs, targets) in tqdm.tqdm(
+        dataloader_train, 
+        bar_format='{l_bar}{bar:20}{r_bar}{bar:-10b}'
+    ):
+        optimizer.zero_grad()
+        outputs = neural(inputs)
+        loss = loss_criterion(outputs, targets)
+        loss.backward()
+        optimizer.step()
+
+def propagate_flight_samples(neural, dataset_test, indices): 
+    outputs, targets = torch.tensor([]), torch.tensor([])
+    for idx in indices: 
+        entry, target = dataset_test[idx]
+        output = neural(entry)
+        outputs = torch.cat((output, outputs), 0)
+        targets = torch.cat((targets, target), 0)
+    return outputs, targets
+
+def test(neural, dataset_test):
+    import tqdm
+    sum_se = sum_ae = 0 
+    len_dataset = len(dataset_test)
+    for unit, flights in dataset_test.unit_flight_sample_indices.items():
+        for flight in flights: 
+            indices = dataset_test.get_all_samples((unit, flight))
+            outputs, targets = propagate_flight_samples(neural, dataset_test, indices)
+            err = targets - outputs
+            sum_se += torch.sum(torch.abs(err)).item()
+            sum_ae += torch.sum(err**2).item()
+    mae = sum_ae/len_dataset
+    mse = sum_se/len_dataset
+    rmse = math.sqrt(mse)
+    logger_console.info(f"Test RMSE: {rmse} MAE: {mae}")
 
 
 class CNNRUL(nn.Module):
 
 
-    def __init__(
-        self, cfg, location
-    ):
+    def __init__(self, cfg, location):
         super(CNNRUL, self).__init__()
 
         kernel_size = cfg["kernel_size"]
@@ -515,7 +595,7 @@ class CNNRUL(nn.Module):
                         nn.Linear(in_features=x[1], out_features=x[2], bias=True)
                     ])
             elif x[0] == "F":
-                denses.extend([nn.Flatten()] )
+                denses.extend([nn.Flatten()])
             else:
                 logger_console.error(
                     f"Error: X[0] does not equal F, L or C, but equals {x[0]}"
@@ -529,59 +609,3 @@ class CNNRUL(nn.Module):
                 nn.init.kaiming_normal_(m.weight, nonlinearity = "relu")
                 assert m.bias != None # mypy
                 nn.init.constant_(m.bias, 0)
-
-
-def main_function(name_nn, name_loss_file, name_loss_graph, name_console):
-    batch_size = config_turbofan["batch_size"]
-    learning_rate = config_turbofan["learning_rate"]
-    num_epochs = config_turbofan["num_epochs"]
-    config_model = config_turbofan["models"][0]
-
-    neural_client, training_partitions = CreatorCNNTurbofan.create_model_datasets()
-    dataset_train, dataset_valid = training_partitions["train"], training_partitions["validation"]
-    dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
-    dataloader_validation = DataLoader(dataset_valid, batch_size = batch_size, shuffle = False)
-
-    neural_server = CNNRUL(config_model, "Server")
-    nn_path = "trained/" + name_nn +  ".pth"
-    params = list(neural_server.parameters())
-    params.extend(neural_client.parameters())
-    optimizer = torch.optim.Adam(params, lr=learning_rate)
-    best_validation_loss = None
-    all_train_losses = []
-    all_validation_losses = []
-
-    for epoch in range(0, num_epochs, 1):
-        start_time_epochs = time.time()
-        logger_console.info(f"Epoch {epoch}/{num_epochs}")
-        neural_client.train(True)
-        neural_server.train(True)
-        loss_train = train_one_epoch(
-            neural_client, neural_server, loss_function, optimizer, dataloader_train, in_training=True
-        )
-        all_train_losses.append(loss_train)
-
-        neural_client.train(False)
-        neural_server.train(False)
-        loss_validation = train_one_epoch(
-            neural_client, neural_server, loss_function, optimizer, dataloader_validation, in_training=False
-        )
-        all_validation_losses.append(loss_validation)
-
-        if (best_validation_loss == None) or (loss_validation < best_validation_loss):
-            best_validation_loss = loss_validation
-            logger_console.info(
-                f"Update parameters. "
-                f"Best validation loss: {best_validation_loss}"
-            )
-            torch.save(copy.deepcopy(neural_client.state_dict()), nn_path)
-
-        time_it_took =  time.time() - start_time_epochs
-        logger_console.info(f"Epoch duration: {time_it_took}")
-
-    logger_loss.info('Training loss')
-    logger_loss.info(all_train_losses)
-    logger_loss.info('Validation loss')
-    logger_loss.info(all_validation_losses)
-
-# main_function("cnn_weights", "Losses", "Graph", "console")

@@ -6,8 +6,8 @@ docker build \
   -t fedadapt/base_image "${script_directory}"
 
 docker run \
-  -it --name test_rul --rm \
+  -it --rm --shm-size 4G \
   -v "${script_directory}/../data:/usr/src/app/data" \
   -v "${script_directory}/logs:/usr/src/app/logs" \
   -v "${script_directory}/../models:/usr/src/app/trained" \
-  fedadapt/base_image pdb "script_rul.py"
+  fedadapt/base_image "${1}" # models.temp # script_rul_turbofan 
