@@ -9,6 +9,7 @@ import os
 import logging
 import sys
 import yaml
+import json
 import functools
 
 from typing import List, Dict, Tuple, Optional
@@ -330,7 +331,7 @@ class CreatorCNNEngine(FactoryModelDatasets):
             dict_test_flights[unit] = all_flights
 
         dataset_test = EngineSimulationDataset(
-            df_turbofan_test, stepsize_sample, all_variables_x,
+            ENGINE, df_turbofan_test, stepsize_sample, all_variables_x,
             considered_length, dict_test_flights, train_minima, train_maxima
         )
         neural_client = CNNRUL(config_model, "Client")
@@ -498,7 +499,7 @@ def validate(neural, dataloader_validation):
             loss_sum += torch.sum((targets-outputs)**2).item()
     MSE = loss_sum/len_dataset
     RMSE = math.sqrt(MSE)
-    logger_console.info(f"MSE: {MSE} \t RMSE: {RMSE}")
+    logger_console.info(f"Validate RMSE: {RMSE}\tMSE: {MSE}")
 
 def train_one_epoch(
     neural, dataloader_train, optimizer, loss_criterion
@@ -514,6 +515,12 @@ def train_one_epoch(
         loss.backward()
         optimizer.step()
 
+def sum_squared_error(error): 
+    return torch.sum(error**2).item()
+
+def sum_absolute_error(error):
+    return torch.sum(torch.abs(error)).item()
+
 def propagate_flight_samples(neural, dataset_test, indices): 
     outputs, targets = torch.tensor([]), torch.tensor([])
     for idx in indices: 
@@ -524,7 +531,6 @@ def propagate_flight_samples(neural, dataset_test, indices):
     return outputs, targets
 
 def test(neural, dataset_test):
-    import tqdm
     sum_se = sum_ae = 0 
     len_dataset = len(dataset_test)
     for unit, flights in dataset_test.unit_flight_sample_indices.items():
@@ -532,13 +538,45 @@ def test(neural, dataset_test):
             indices = dataset_test.get_all_samples((unit, flight))
             outputs, targets = propagate_flight_samples(neural, dataset_test, indices)
             err = targets - outputs
-            sum_se += torch.sum(torch.abs(err)).item()
-            sum_ae += torch.sum(err**2).item()
+            sum_ae += sum_absolute_error(err)
+            sum_se += sum_squared_error(err)
     mae = sum_ae/len_dataset
     mse = sum_se/len_dataset
     rmse = math.sqrt(mse)
-    logger_console.info(f"Test RMSE: {rmse} MAE: {mae}")
+    logger_console.info(f"Test RMSE: {rmse}\tMAE: {mae}")
 
+def test_per_flight(neural, dataset_test): 
+    sum_se = sum_ae = 0 
+    len_dataset = 0
+    dict_engine_ruls = {}
+    for unit, flights in dataset_test.unit_flight_sample_indices.items():
+        dict_engine_ruls[unit] = []
+        for flight in flights: 
+            indices = dataset_test.get_all_samples((unit, flight))
+            outputs, targets = propagate_flight_samples(neural, dataset_test, indices)
+            if not torch.numel(targets): 
+                continue
+            target = targets[0]
+            output = torch.median(outputs)
+            dict_engine_ruls[unit].append((output.item(), target.item()))
+            err = target - output
+            sum_ae += sum_absolute_error(err)
+            sum_se += sum_squared_error(err)
+            len_dataset += 1
+    mae = sum_ae/len_dataset
+    mse = sum_se/len_dataset
+    rmse = math.sqrt(mse)
+    logger_console.info(f"Test RMSE: {rmse}\tMAE: {mae}")
+    with open("/usr/src/app/results/test_per_fligt.json", "w") as f: 
+        json.dump(dict_engine_ruls, f)
+
+def compute_rmse_mae(outputs, targets): 
+    err = outputs-targets
+    sum_se = sum_squared_error(err)
+    sum_ae = sum_absolute_error(err)
+    rmse = math.sqrt(sum_se/outputs.size()[0]) 
+    mae = sum_ae/outputs.size()[0]
+    return rmse, mae
 
 class CNNRUL(nn.Module):
 

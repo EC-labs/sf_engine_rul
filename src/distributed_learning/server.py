@@ -11,6 +11,7 @@ import time
 import logging
 
 from typing import List, Dict, Type, Iterable, Dict, Any
+from functools import partial
 from dataclasses import dataclass
 
 from .communicator import Communicator
@@ -19,6 +20,7 @@ from . import utils
 
 logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+tqdm.tqdm = partial(tqdm.tqdm, bar_format='{l_bar}{bar:20}{r_bar}{bar:-10b}')
 
 np.random.seed(0)
 torch.manual_seed(0)
@@ -100,8 +102,9 @@ class SplitFedServerThread:
             expect_msg_type='CLIENT_VALIDATION_ITERATIONS_NUMBER'
         )
         logger.debug(f"Number validation iterations: {iterations_number}")
-        loss_validation_total = 0
         self.neural_network.eval()
+        self.outputs_validate = torch.tensor([])
+        self.targets_validate = torch.tensor([])
         with torch.no_grad(): 
             for i in tqdm.tqdm(range(iterations_number)):
                 msg = self.comm.recv_msg('MSG_LOCAL_ACTIVATIONS_CLIENT_TO_SERVER')
@@ -109,9 +112,9 @@ class SplitFedServerThread:
                 labels = msg[2]
                 inputs, targets = smashed_layers.to(self.device), labels.to(self.device)
                 outputs = self.neural_network(inputs)
-                loss = self.criterion(outputs, targets)
-                loss_validation_total += loss.item()
-        self._loss_validation = loss_validation_total 
+                self.outputs_validate = torch.cat((self.outputs_validate, outputs), 0)
+                self.targets_validate = torch.cat((self.targets_validate, targets), 0)
+
 
 
 
@@ -196,7 +199,6 @@ class SplitFedServer:
         logger.debug("End threads training")
         self.aggregate()
         self._weights_nn_unit_send(self.threads)
-        self._validate()
 
     def train(self, min_clients=1):
         self._add_pending_clients()
@@ -244,7 +246,7 @@ class SplitFedServer:
         )
         self.neural_network_unit.load_state_dict(aggregated_model)
 
-    def _validate(self): 
+    def validate(self): 
         threads_training = [
             threading.Thread(
                 target=t.validate, 
@@ -257,11 +259,12 @@ class SplitFedServer:
             t.start()
         for t in threads_training: 
             t.join()
-        total_validation_loss = functools.reduce(
-            lambda acc, x: x.loss_validation + acc, self.threads, 0
-        )
-        logger.info(f"Validation loss: {total_validation_loss}")
-
+        outputs = torch.tensor([])
+        targets = torch.tensor([])
+        for t in self.threads: 
+            outputs = torch.cat((t.outputs_validate, outputs), 0)
+            targets = torch.cat((t.targets_validate, targets), 0)
+        return outputs, targets
 
     def test(self, testloader): 
         self.neural_network_unit.eval()

@@ -1,7 +1,7 @@
 SHELL = /bin/bash
 
 NCLIENTS=1
-PROGRAM=fedadapt
+PROGRAM=rul_engine
 
 ROOTDIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 SRCDIR=$(ROOTDIR)/src
@@ -24,9 +24,6 @@ LOGS_DIR=$(BASE_LOGS)/$(EXEC_TIME)
 
 .PHONY: clean_resources clean_logs clean \
 				create_network create_image run
-
-testing: 
-	echo $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
 run: create_image create_network
 		@mkdir -p "$(LOGS_DIR)"

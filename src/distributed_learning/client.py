@@ -52,7 +52,7 @@ class SplitFedClient:
             self.neural_network.parameters(), *args, **kwargs
         )
 
-    def train(self, dataloader_train, dataloader_validate=None):
+    def train(self, dataloader_train):
         try: 
             assert hasattr(self, "_optimizer")
         except: 
@@ -81,10 +81,9 @@ class SplitFedClient:
         self.conn.send_msg(msg)
         self._weights_upload()
         self._weights_receive()
-        self._validate(dataloader_validate)
         return e_time_total - s_time_total
         
-    def _validate(
+    def validate(
         self, dataloader_validate: Optional[torch.utils.data.DataLoader] = None
     ): 
         iter_validate = (len(dataloader_validate) 

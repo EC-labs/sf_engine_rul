@@ -6,7 +6,8 @@ import logging
 import config
 
 from distributed_learning.server import SplitFedServer
-from models.turbofan import CreatorCNNEngine
+from models.turbofan import CreatorCNNEngine, compute_rmse_mae, test
+
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -32,6 +33,6 @@ res['training_time'], res['test_acc_record'], res['bandwidth_record'] = [], [], 
 for r in range(config.R):
     logger.info(f"Epoch {r}")
     server.train()
-
-    with open(config.home + '/results/FedAdapt_res.pkl','wb') as f:
-        pickle.dump(res,f)
+    outputs, targets = server.validate()
+    rmse, mae = compute_rmse_mae(outputs, targets)
+    logger.info(f"Validate: RMSE {rmse}\tMAE {mae}")

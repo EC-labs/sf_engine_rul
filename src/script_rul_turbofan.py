@@ -6,7 +6,8 @@ from torch.utils.data import DataLoader
 
 import config
 from models.turbofan import (
-    CreatorCNNTurbofan, train_one_epoch, validate, test
+    CreatorCNNTurbofan, train_one_epoch, validate, test,
+    test_per_flight
 )
 
 logger = logging.getLogger(__name__)
@@ -30,5 +31,4 @@ for epoch in range(config.R):
     train_one_epoch(neural, dataloader_train, optimizer, loss_criterion)
     logger.info("Validate")
     loss_validation = validate(neural, dataloader_validation)
-
-test(neural, datasets["test"])
+test_per_flight(neural, datasets["test"])
