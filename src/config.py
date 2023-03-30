@@ -1,6 +1,9 @@
 import sys
 import os
+import torch
+import numpy as np
 import logging
+import yaml
 
 LOG_LEVEL = os.getenv("LOG_LEVEL") or logging.INFO
 logging.basicConfig(
@@ -8,21 +11,17 @@ logging.basicConfig(
     level=LOG_LEVEL,
 )
 
-# Network configration
 SERVER_ADDR= 'fedadapt_server'
 SERVER_PORT = 51000
 
-K = int(os.getenv("NCLIENTS", "1")) # Number of devices
-G = 3 # Number of groups
-
-# Dataset configration
 dataset_name = 'CIFAR10'
 home = '/usr/src/app'
-dataset_path = '/usr/src/app/data/raw'
-N = 50 # data length
+dataset_path = os.path.join(home, "data/raw")
 
+runtime_config_file_path = os.path.join(home, "config.yml")
+with open(runtime_config_file_path, "r") as f: 
+    runtime_config = yaml.safe_load(f)
 
-# Model configration
 model_cfg = {
     # (Type, in_channels, out_channels, kernel_size, out_size(c_out*h*w), flops(c_out*h*w*k*k*c_in))
     'VGG5' : [
@@ -40,36 +39,14 @@ model_name = 'VGG5'
 model_size = 1.28
 model_flops = 32.902
 total_flops = 8488192
-split_layer = 2 #Initial split layers
+split_layer = 2
 model_len = 7
+results_dir = os.path.join(home, "results")
 
+R = runtime_config["epochs"]
+LR = runtime_config["learning_rate"]
+B = runtime_config["batch_size"]
 
-# FL training configration
-R = 50 # FL rounds
-LR = 0.001 # Learning rate
-B = 128 # Batch size
-
-
-# RL training configration
-max_episodes = 100         # max training episodes
-max_timesteps = 100        # max timesteps in one episode
-exploration_times = 20       # exploration times without std decay
-n_latent_var = 64          # number of variables in hidden layer
-action_std = 0.5           # constant std for action distribution (Multivariate Normal)
-update_timestep = 10       # update policy every n timesteps
-K_epochs = 50              # update policy for K epochs
-eps_clip = 0.2             # clip parameter for PPO
-rl_gamma = 0.9             # discount factor
-rl_b = 100                   # Batchsize
-rl_lr = 0.0003             # parameters for Adam optimizer
-rl_betas = (0.9, 0.999)
-iteration = {
-    '192.168.0.14': 5, 
-    '192.168.0.15': 5, 
-    '192.168.0.25': 50, 
-    '192.168.0.36': 5, 
-    '192.168.0.29': 5,
-}  # infer times for each device
-
-random = True
-random_seed = 0
+seed = runtime_config["seed"]
+np.random.seed(seed)
+torch.manual_seed(seed)

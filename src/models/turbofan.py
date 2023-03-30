@@ -16,6 +16,8 @@ from typing import List, Dict, Tuple, Optional
 from torch.utils.data import Dataset, random_split, DataLoader
 from pandas import DataFrame
 from torch import nn
+from copy import deepcopy
+from dataclasses import dataclass
 
 import config
 
@@ -177,9 +179,16 @@ def normalization(data, minima, maxima, skip = ["cycle", "unit" , "hs"]):
 
 class CreatorCNNTurbofan(FactoryModelDatasets):
 
+    def __init__(self, model_config=None): 
+        if not model_config: 
+            model_config_path = "./turbofan.yml"
+            with open(model_config_path, "r") as f: 
+                self.model_config = yaml.safe_load(f)
+        else: 
+            self.model_config = model_config
 
-    @staticmethod
-    def create_model_datasets():
+    def create_model_datasets(self, neural = None):
+        config_turbofan = deepcopy(self.model_config)
         config_dataset = config_turbofan["dataset"]
         config_model = config_turbofan["models"][0]
         X_v_to_keep = config_dataset["X_v_to_keep"]
@@ -187,10 +196,7 @@ class CreatorCNNTurbofan(FactoryModelDatasets):
         stepsize_sample = config_dataset["stepsize_sample"]
         considered_length = config_dataset["considered_length"]
         frequency = config_dataset["frequency"]
-        seed = config_turbofan["seed"]
-        validation_size = config_turbofan["validation_size"]
-        np.random.seed(seed)
-        torch.manual_seed(seed)
+        validation_size = config_dataset["validation_size"]
 
         df_turbofan, all_fc = read_in_data(
             "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5",
@@ -243,7 +249,7 @@ class CreatorCNNTurbofan(FactoryModelDatasets):
             considered_length, dict_test_flights, train_minima, train_maxima
         )
 
-        neural = CNNRUL(config_model, "Unit")
+        neural = neural if neural != None else CNNRUL(config_model, "Unit")
         return (
             neural,
             {
@@ -279,11 +285,8 @@ class CreatorCNNEngine(FactoryModelDatasets):
         stepsize_sample = config_dataset["stepsize_sample"]
         considered_length = config_dataset["considered_length"]
         frequency = config_dataset["frequency"]
-        seed = config_turbofan["seed"]
         validation_size = config_turbofan["validation_size"]
         ENGINE = int(os.getenv("ENGINE", "2.0"))
-        np.random.seed(seed)
-        torch.manual_seed(seed)
 
         df_turbofan, all_fc = read_in_data(
             "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5",
@@ -500,6 +503,7 @@ def validate(neural, dataloader_validation):
     MSE = loss_sum/len_dataset
     RMSE = math.sqrt(MSE)
     logger_console.info(f"Validate RMSE: {RMSE}\tMSE: {MSE}")
+    return RMSE
 
 def train_one_epoch(
     neural, dataloader_train, optimizer, loss_criterion
@@ -578,6 +582,7 @@ def compute_rmse_mae(outputs, targets):
     mae = sum_ae/outputs.size()[0]
     return rmse, mae
 
+
 class CNNRUL(nn.Module):
 
 
@@ -647,3 +652,60 @@ class CNNRUL(nn.Module):
                 nn.init.kaiming_normal_(m.weight, nonlinearity = "relu")
                 assert m.bias != None # mypy
                 nn.init.constant_(m.bias, 0)
+
+
+class UncomparableModels(Exception): 
+    pass
+
+class NotCNNRULInstance(Exception): 
+    pass
+
+
+@dataclass
+class FileCNNRULStruct: 
+    """Struct to serialize and deserialize a CNNRUL model.
+
+    Attributes: 
+        model_state_dict: pytorch state dict to be used to load the CNNRUL
+            model.
+        model_config_context: provides the configuration context used to create
+            the model and the dataset. Used to compare between 2 different
+            CNNRUL models.
+        model_config_runtime: informative attribute, that indicates the runtime
+            context in which the model was created. This enables
+            reproducibility.
+        validation_results: provides the validation results for the model using
+            the this instance's `model_state_dict`. This attribute is used to
+            compare validation results with other comparable models.
+    """
+
+
+    model_state_dict: dict
+    model_config_context: dict
+    model_config_runtime: dict
+    validation_results: float
+
+
+def improved_validation_cnnrul(
+        model: FileCNNRULStruct, other: FileCNNRULStruct
+) -> bool: 
+    """Return whether `other` has better validation results that `model`."""
+
+    if model.validation_results > other.validation_results: 
+        return True
+    return False
+    
+def equivalent_config_cnnrul(model_config, other_config): 
+    """Indicates whether 2 rul cnn models have equivalent configurations."""
+    if model_config == other_config: 
+        return True
+    return False
+
+def model_recreate_cnnrul(
+    file_model_struct: FileCNNRULStruct, config_file_dict: dict
+) -> CNNRUL: 
+    if not isinstance(file_model_struct, FileCNNRULStruct): 
+        raise NotCNNRULInstance()
+    neural = CNNRUL(config_file_dict["models"][0], "Unit")
+    neural.load_state_dict(file_model_struct.model_state_dict)
+    return neural

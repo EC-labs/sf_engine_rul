@@ -14,6 +14,7 @@ ENV LOG_LEVEL=INFO
 COPY ./distributed_learning ./distributed_learning
 COPY ./models ./models
 COPY ./*.py ./
+COPY ./config.yml ./config.yml
 
 VOLUME ["/usr/src/app/data", "/usr/src/app/results"]
 
