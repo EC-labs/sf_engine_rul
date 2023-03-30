@@ -15,7 +15,6 @@ from models.turbofan import (
 from models import file_model
 
 
-import pdb; pdb.set_trace();
 logger = logging.getLogger(__name__)
 file_path = os.path.join(config.results_dir, "turbofan_rul.pkl")
 

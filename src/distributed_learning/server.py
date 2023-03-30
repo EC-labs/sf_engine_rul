@@ -97,6 +97,12 @@ class SplitFedServerThread:
             expect_msg_type='MSG_TRAINING_TIME_PER_ITERATION'
         )
 
+    def neural_network_load(self, nn_unit): 
+        server_weights = utils.split_weights_server(
+            nn_unit.state_dict(), self.neural_network.state_dict()
+        )
+        self.neural_network.load_state_dict(server_weights)
+
     def validate(self): 
         _, iterations_number = self.comm.recv_msg(
             expect_msg_type='CLIENT_VALIDATION_ITERATIONS_NUMBER'
@@ -198,6 +204,7 @@ class SplitFedServer:
             t.join()
         logger.debug("End threads training")
         self.aggregate()
+        self._nn_threads_update()
         self._weights_nn_unit_send(self.threads)
 
     def train(self, min_clients=1):
@@ -206,7 +213,11 @@ class SplitFedServer:
             logger.info("Not enough clients connected")
             self._add_pending_clients()
             time.sleep(2)
-        self._train()
+        return self._train()
+
+    def _nn_threads_update(self): 
+        for thread in self.threads: 
+            thread.neural_network_load(self.neural_network_unit)
 
     def _add_pending_clients(self): 
         with self.pending_lock: 

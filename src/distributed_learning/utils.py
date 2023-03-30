@@ -6,7 +6,6 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Subset
 
 from models.vgg import VGG
-from config import N, K, B, dataset_path
 import collections
 import numpy as np
 
@@ -55,15 +54,14 @@ def split_weights_client(weights,cweights):
         cweights[key] = weights[key]
     return cweights
 
-def split_weights_server(weights, cweights, sweights):
-    ckeys = list(cweights)
+def split_weights_server(weights, sweights):
     skeys = list(sweights)
     keys = list(weights)
-
-    for i in range(len(skeys)):
-        assert sweights[skeys[i]].size() == weights[keys[i + len(ckeys)]].size()
-        sweights[skeys[i]] = weights[keys[i + len(ckeys)]]
-
+    end = len(weights)
+    start = end - len(sweights)
+    for sidx, widx in enumerate(range(start, end)):
+        assert sweights[skeys[sidx]].size() == weights[keys[widx]].size()
+        sweights[skeys[sidx]] = weights[keys[widx]]
     return sweights
 
 def concat_weights(weights, cweights, sweights):

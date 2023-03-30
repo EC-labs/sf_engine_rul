@@ -21,14 +21,13 @@ handler_console.setFormatter(format_console)
 handler_console.setLevel(logging.DEBUG)
 logger.addHandler(handler_console)
 
-index = 0
-datalen = 10
 split_layer = config.split_layer
 LR = config.LR
 
 logger.info('Prepare Data')
 cpu_count = multiprocessing.cpu_count()
-neural_client, training_partitions = CreatorCNNEngine.create_model_datasets(split_layer)
+creator = CreatorCNNEngine()
+neural_client, training_partitions = creator.create_model_datasets(split_layer)
 dataset_train, dataset_validate = training_partitions["train"], training_partitions["validation"]
 dataloader_train = DataLoader(
     dataset_train, batch_size=config.B, shuffle=True, num_workers=cpu_count

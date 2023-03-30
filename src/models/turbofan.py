@@ -22,6 +22,7 @@ from dataclasses import dataclass
 import config
 
 from . import FactoryModelDatasets
+from distributed_learning import utils
 
 
 logger_console = logging.getLogger(__name__)
@@ -181,7 +182,7 @@ class CreatorCNNTurbofan(FactoryModelDatasets):
 
     def __init__(self, model_config=None): 
         if not model_config: 
-            model_config_path = "./turbofan.yml"
+            model_config_path = "models/turbofan.yml"
             with open(model_config_path, "r") as f: 
                 self.model_config = yaml.safe_load(f)
         else: 
@@ -262,21 +263,38 @@ class CreatorCNNTurbofan(FactoryModelDatasets):
 
 class CreatorCNNEngine(FactoryModelDatasets):
 
-    @staticmethod
-    def nn_unit_create(): 
-        config_model = config_turbofan["models"][0]
-        nn_unit = CNNRUL(config_model, "Unit")
-        return nn_unit
+    def __init__(self, model_config=None, neural_network=None): 
+        if not model_config: 
+            model_config_path = "models/turbofan.yml"
+            with open(model_config_path, "r") as f: 
+                self.model_config = yaml.safe_load(f)
+        else: 
+            self.model_config = model_config
+        self.nn_unit_create(neural_network)
 
-    @staticmethod
-    def nn_server_create(split_layer): 
+
+    def nn_unit_create(self, neural_network): 
+        config_model = config_turbofan["models"][0]
+        if neural_network == None: 
+            neural_network = CNNRUL(config_model, "Unit")
+        self.neural_network = neural_network
+        return self.neural_network
+
+    def nn_server_create(self, split_layer): 
+        config_turbofan = deepcopy(self.model_config)
         config_model = config_turbofan["models"][0]
         config_model["split_layer"] = split_layer
         nn_server = CNNRUL(config_model, "Server")
+        nn_server.load_state_dict(
+            utils.split_weights_server(self.neural_network.state_dict(), nn_server.state_dict())
+        )
         return nn_server
 
-    @staticmethod
-    def create_model_datasets(split_layer):
+    def create_test_dataset(self): 
+        pass
+
+    def create_model_datasets(self, split_layer):
+        config_turbofan = deepcopy(self.model_config)
         config_dataset = config_turbofan["dataset"]
         config_model = config_turbofan["models"][0]
         config_model["split_layer"] = split_layer
@@ -285,7 +303,7 @@ class CreatorCNNEngine(FactoryModelDatasets):
         stepsize_sample = config_dataset["stepsize_sample"]
         considered_length = config_dataset["considered_length"]
         frequency = config_dataset["frequency"]
-        validation_size = config_turbofan["validation_size"]
+        validation_size = config_dataset["validation_size"]
         ENGINE = int(os.getenv("ENGINE", "2.0"))
 
         df_turbofan, all_fc = read_in_data(
@@ -320,30 +338,12 @@ class CreatorCNNEngine(FactoryModelDatasets):
             train_minima, train_maxima
         )
 
-        df_turbofan_test, _ = read_in_data(
-            "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5",
-            frequency, X_v_to_keep, X_s_to_keep, False, True
-        )
-        df_turbofan_test = df_turbofan_test.drop(columns = ["hs"])
-        test_units = np.unique(df_turbofan_test.loc[:, "unit"])
-
-        dict_test_flights = {} 
-        for unit in test_units:
-            last_flight = int(max(df_turbofan_test.loc[df_turbofan_test["unit"] == unit, "cycle"]))
-            all_flights = list(range(1, last_flight+1, 1))
-            dict_test_flights[unit] = all_flights
-
-        dataset_test = EngineSimulationDataset(
-            ENGINE, df_turbofan_test, stepsize_sample, all_variables_x,
-            considered_length, dict_test_flights, train_minima, train_maxima
-        )
         neural_client = CNNRUL(config_model, "Client")
         return (
             neural_client,
             {
                 "train": dataset_train, 
                 "validation": dataset_valid,
-                "test": dataset_test,
             }
         )
 
