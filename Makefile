@@ -71,6 +71,26 @@ run_centralized: create_image
 			--name turbofan_rul \
 			-it \
 			$(IMAGE) script_rul_turbofan
+	
+test_centralized: create_image
+		docker run \
+			$(CONTAINER_LABELS) \
+			$(COMMON_FLAGS) \
+			$(CPUS_FLAG) \
+			$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
+			--name turbofan_centralized_test \
+			-it \
+			$(IMAGE) script_test_turbofan
+
+test_decentralized: create_image
+		docker run \
+			$(CONTAINER_LABELS) \
+			$(COMMON_FLAGS) \
+			$(CPUS_FLAG) \
+			$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
+			--name turbofan_test_engine \
+			-it \
+			$(IMAGE) script_test_engine
 
 clean_resources:
 		cnts=($$(docker ps -a --filter 'label=$(GROUP_LABEL)' | awk '{if(NR > 1) { print $$1 } }')); \

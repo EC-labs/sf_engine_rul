@@ -63,4 +63,3 @@ for epoch in range(config.R):
         file_model.file_store(file_path, candidate_model)
         persisted_model = candidate_model
 
-test_per_flight(neural, datasets["test"])

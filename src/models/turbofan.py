@@ -188,7 +188,7 @@ class CreatorCNNTurbofan(FactoryModelDatasets):
         else: 
             self.model_config = model_config
 
-    def create_model_datasets(self, neural = None):
+    def create_model_datasets(self, neural=None):
         config_turbofan = deepcopy(self.model_config)
         config_dataset = config_turbofan["dataset"]
         config_model = config_turbofan["models"][0]
@@ -549,13 +549,18 @@ def test(neural, dataset_test):
     rmse = math.sqrt(mse)
     logger_console.info(f"Test RMSE: {rmse}\tMAE: {mae}")
 
-def test_per_flight(neural, dataset_test): 
+def test_per_flight(neural, dataset_test, filepath): 
+    import tqdm
     sum_se = sum_ae = 0 
     len_dataset = 0
     dict_engine_ruls = {}
     for unit, flights in dataset_test.unit_flight_sample_indices.items():
+        logger_console.info(f"Unit {unit}")
         dict_engine_ruls[unit] = []
-        for flight in flights: 
+        for flight in tqdm.tqdm(
+            flights,
+            bar_format='{l_bar}{bar:20}{r_bar}{bar:-10b}',
+        ): 
             indices = dataset_test.get_all_samples((unit, flight))
             outputs, targets = propagate_flight_samples(neural, dataset_test, indices)
             if not torch.numel(targets): 
@@ -571,7 +576,7 @@ def test_per_flight(neural, dataset_test):
     mse = sum_se/len_dataset
     rmse = math.sqrt(mse)
     logger_console.info(f"Test RMSE: {rmse}\tMAE: {mae}")
-    with open("/usr/src/app/results/test_per_fligt.json", "w") as f: 
+    with open(filepath, "w") as f: 
         json.dump(dict_engine_ruls, f)
 
 def compute_rmse_mae(outputs, targets): 
