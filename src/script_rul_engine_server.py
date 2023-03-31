@@ -3,6 +3,7 @@ import torch
 import logging
 import os
 import yaml
+import json
 
 import config
 
@@ -14,15 +15,24 @@ from models.turbofan import (
 from models import file_model
 
 
+def persist_training_times(training_times, file_path): 
+    with open(file_path, "w") as f: 
+        json.dump(training_times, f)
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+def persist_validations(validations, file_path): 
+    with open(file_path, "w") as f: 
+        json.dump(validations, f)
+
 logger = logging.getLogger(__name__)
+training_times = []
+validations = []
 
 LR = config.LR
 split_layer = config.split_layer
 
-
 file_path = os.path.join(config.results_dir, "engine_turbofan_rul.pkl")
+training_time_fp = os.path.join(config.results_dir, "distributed_training_time.json")
+validations_fp = os.path.join(config.results_dir, "distributed_validations.json")
 model_config_path = os.path.join(config.home, "models/turbofan.yml")
 with open(model_config_path, "r") as f: 
     model_config = yaml.safe_load(f)
@@ -50,17 +60,20 @@ server = SplitFedServer(
 )
 server.optimizer(lr=LR)
 server.listen()
-time.sleep(10)
-
-res = {}
-res['training_time'], res['test_acc_record'], res['bandwidth_record'] = [], [], []
+time.sleep(30)
 
 for r in range(config.R):
+    start = time.time()
     logger.info(f"Epoch {r}")
     server.train()
     outputs, targets = server.validate()
     rmse, mae = compute_rmse_mae(outputs, targets)
     logger.info(f"Validate: RMSE {rmse}\tMAE {mae}")
+    end = time.time()
+    training_times.append(end-start)
+    persist_training_times(training_times, training_time_fp)
+    validations.append(rmse)
+    persist_validations(validations, validations_fp)
     candidate_model = FileCNNRULStruct(
         server.neural_network_unit.state_dict(),
         creator.model_config,config.runtime_config, rmse,

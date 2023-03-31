@@ -68,7 +68,7 @@ run_centralized: create_image
 			$(COMMON_FLAGS) \
 			$(CPUS_FLAG) \
 			$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
-			--name turbofan_rul \
+			--name turbofan_centralized \
 			-it \
 			$(IMAGE) script_rul_turbofan
 	

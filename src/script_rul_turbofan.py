@@ -3,6 +3,8 @@ import torch
 import multiprocessing
 import logging
 import yaml
+import json
+import time
 from torch.utils.data import DataLoader
 from typing import Optional
 
@@ -15,8 +17,20 @@ from models.turbofan import (
 from models import file_model
 
 
+def persist_training_times(training_times, file_path): 
+    with open(file_path, "w") as f: 
+        json.dump(training_times, f)
+
+def persist_validations(validations, file_path): 
+    with open(file_path, "w") as f: 
+        json.dump(validations, f)
+
 logger = logging.getLogger(__name__)
 file_path = os.path.join(config.results_dir, "turbofan_rul.pkl")
+training_time_fp = os.path.join(config.results_dir, "centralized_training_time.json")
+validations_fp = os.path.join(config.results_dir, "centralized_validations.json")
+training_times = []
+validations = []
 
 model_config_path = os.path.join(config.home, "models/turbofan.yml")
 with open(model_config_path, "r") as f: 
@@ -51,9 +65,15 @@ logger.info(f"Dataset size: {len(datasets['train'])}")
 for epoch in range(config.R):
     logger.info(f"Epoch {epoch}")
     logger.info("Train")
+    start = time.time()
     train_one_epoch(neural, dataloader_train, optimizer, loss_criterion)
     logger.info("Validate")
     loss_validation = validate(neural, dataloader_validation)
+    end = time.time()
+    training_times.append(end-start)
+    persist_training_times(training_times, training_time_fp)
+    validations.append(loss_validation)
+    persist_validations(validations, validations_fp)
     candidate_model = FileCNNRULStruct(
         neural.state_dict(), creator.model_config, config.runtime_config,
         loss_validation,

@@ -19,37 +19,11 @@ from torch import nn
 from copy import deepcopy
 from dataclasses import dataclass
 
-import config
-
 from . import FactoryModelDatasets
 from distributed_learning import utils
 
 
 logger_console = logging.getLogger(__name__)
-logger_console.propagate = False
-
-logger_loss = logging.getLogger(f"{__name__}.loss")
-logger_loss.propagate = False
-
-handler_stream_console = logging.StreamHandler(sys.stdout)
-handler_file_console = logging.FileHandler('logs/console.log', mode='a')
-handler_file_loss = logging.FileHandler('logs/loss.log', mode='a')
-
-handler_stream_console.setLevel(logging.INFO)
-handler_file_console.setLevel(logging.INFO)
-handler_file_loss.setLevel(logging.INFO)
-
-format_console = logging.Formatter('[%(levelname)s]: %(name)s : %(message)s')
-format_file = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-handler_stream_console.setFormatter(format_console)
-handler_file_console.setFormatter(format_file)
-handler_file_loss.setFormatter(format_file)
-
-logger_console.addHandler(handler_stream_console)
-logger_console.addHandler(handler_file_console)
-logger_loss.addHandler(handler_stream_console)
-logger_loss.addHandler(handler_file_loss)
 
 with open("models/turbofan.yml") as f:
     config_turbofan = yaml.safe_load(f)
@@ -305,6 +279,7 @@ class CreatorCNNEngine(FactoryModelDatasets):
         frequency = config_dataset["frequency"]
         validation_size = config_dataset["validation_size"]
         ENGINE = int(os.getenv("ENGINE", "2.0"))
+        logger_console.info(f"Client engine: {ENGINE}")
 
         df_turbofan, all_fc = read_in_data(
             "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5",
@@ -567,7 +542,12 @@ def test_per_flight(neural, dataset_test, filepath):
                 continue
             target = targets[0]
             output = torch.median(outputs)
-            dict_engine_ruls[unit].append((output.item(), target.item()))
+            dict_engine_ruls[unit].append({
+                "RUL": target.item(),
+                "predicted": output.item(),
+                "average": torch.mean(outputs).item(), 
+                "std_dev": torch.std(outputs).item(),
+            })
             err = target - output
             sum_ae += sum_absolute_error(err)
             sum_se += sum_squared_error(err)

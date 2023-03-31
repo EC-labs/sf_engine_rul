@@ -10,10 +10,7 @@ from models.turbofan import (
 
 
 logger = logging.getLogger(__name__)
-file_path = os.path.join(config.results_dir, "engine_turbofan_rul.pkl")
-model_config_path = os.path.join(config.home, "models/turbofan.yml")
-with open(model_config_path, "r") as f: 
-    model_config = yaml.safe_load(f)
+file_path = os.path.join(config.results_dir, "frequency=60/engine_turbofan_rul.pkl")
 try:
     persisted_model = file_model.file_load(file_path)
     neural = model_recreate_cnnrul(
