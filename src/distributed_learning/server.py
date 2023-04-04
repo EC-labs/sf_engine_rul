@@ -108,6 +108,45 @@ class BestModelStateValidation:
         return False
 
 
+class ValidationSoftmax: 
+
+    _validation_results: torch.Tensor
+    _softmax: Optional[List]
+    _unit_state_dicts: List
+
+    def __init__(self): 
+        self._validation_results = torch.Tensor(size=(0, 1))
+        self._unit_state_dicts = []
+        self._softmax = None
+    
+    def add_validation_result(self, validate_model_state: ValidateModelState): 
+        self._validation_results = torch.cat(
+            (
+                self._validation_results, 
+                torch.Tensor([[validate_model_state.validation_result]])
+            ), 
+            0
+        ) 
+        self._unit_state_dicts.append(validate_model_state.unit_state_dict)
+
+    def compute_softmax(self): 
+        inverse_validations = torch.pow(self._validation_results, -1)
+        mean_inverse = torch.mean(inverse_validations)
+        std_inverse = torch.std(inverse_validations)
+        normalized_inverse = (inverse_validations-mean_inverse)/std_inverse
+        softmax = torch.nn.Softmax(dim=0)
+        self._softmax = softmax(normalized_inverse).squeeze(1).tolist()
+
+    @property
+    def softmax(self) -> List: 
+        if self._softmax == None: 
+            raise Exception()
+        return self._softmax
+
+    def zip_state_dict_softmax(self): 
+        return zip(self._unit_state_dicts, self.softmax)
+        
+
 
 @dataclass 
 class StructOptimizerConstructor: 
@@ -330,6 +369,9 @@ class SplitFedServer:
             self.fed_avg()
         elif method == "best_validation_model":
             self.best_validation_model()
+        elif method == "validation_softmax": 
+            self.validation_softmax()
+
         else: 
             raise NotImplemented(method)
         self._nn_threads_update()
@@ -383,6 +425,7 @@ class SplitFedServer:
                 original_client, client_idx, validate_model_state
             )
             validation_threads.append(thread_context)
+        for thread_context in validation_threads: 
             thread_context.start_thread()
 
         best_result = BestModelStateValidation()
@@ -403,6 +446,41 @@ class SplitFedServer:
         aggregated_model = best_result.unit_state_dict
         logger.info(f"Selected model from client {best_result.original_client}")
         self.neural_network_unit.load_state_dict(aggregated_model)
+
+
+    def validation_softmax(self): 
+        validation_threads = []
+        num_threads = len(self.threads)
+        for client_idx, assigned_idx in enumerate(random.sample(range(num_threads), num_threads)): 
+            original_client = self.threads[client_idx]
+            unit_state = original_client.neural_network_unit_compose(self.neural_network_unit)
+            assigned_client = self.threads[assigned_idx]
+            validate_model_state = ValidateModelState(unit_state)
+            thread_execution = threading.Thread(
+                target=assigned_client.validate_model,
+                args=(validate_model_state,)
+            )
+            thread_context = ModelStateValidationThreadContext(
+                thread_execution, assigned_client, assigned_idx,
+                original_client, client_idx, validate_model_state
+            )
+            validation_threads.append(thread_context)
+        for thread_context in validation_threads: 
+            thread_context.start_thread()
+
+        validation_softmax = ValidationSoftmax()
+        for thread_context in validation_threads: 
+            thread_context.join_thread()
+            validation_softmax.add_validation_result(thread_context.validate_model_state)
+        validation_softmax.compute_softmax()
+        zero_model = utils.zero_init(self.neural_network_unit).state_dict()
+        aggregated_model = utils.fed_avg(
+            zero_model, list(validation_softmax.zip_state_dict_softmax())
+        )
+        logger.info(f"Validation results: {validation_softmax._validation_results.squeeze(1).tolist()}")
+        logger.info(f"Model weights: {validation_softmax.softmax}")
+        self.neural_network_unit.load_state_dict(aggregated_model)
+
 
     def validate(self): 
         threads_training = [

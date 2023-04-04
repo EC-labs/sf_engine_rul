@@ -65,9 +65,11 @@ for r in range(config.R):
     start = time.time()
     logger.info(f"Epoch {r}")
     server.train(min_clients=6)
+    server.aggregate("validation_softmax")
     outputs, targets = server.validate()
     rmse, mae = compute_rmse_mae(outputs, targets)
     logger.info(f"Validate: RMSE {rmse}\tMAE {mae}")
+
     end = time.time()
     training_times.append(end-start)
     persist_training_times(training_times, training_time_fp)

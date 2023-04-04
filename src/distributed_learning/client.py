@@ -39,7 +39,7 @@ class SplitFedClient:
         self, server_addr, server_port, model_name, 
         split_layer, criterion, cls_optimizer: Type[torch.optim.Optimizer], 
         neural_network: torch.nn.Module, neural_network_unit: torch.nn.Module,
-        dataloader_validate=None, aggregate_method=None
+        dataloader_validate=None
     ):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model_name = model_name
@@ -48,9 +48,6 @@ class SplitFedClient:
         self.cls_optimizer = cls_optimizer
         self.neural_network_unit = neural_network_unit
         self.dataloader_validate = dataloader_validate
-        if aggregate_method == None:
-            aggregate_method = self.fed_avg_client
-        self._aggregate = aggregate_method
         logger.info('Connecting to Server.')
         self.conn = Communicator()
         self.conn.connect((server_addr, server_port))
@@ -94,8 +91,8 @@ class SplitFedClient:
     def aggregate(self, method): 
         if method == "fed_avg":
             self.fed_avg_client()
-        elif method == "best_validation_model":
-            self.best_validation_model_client()
+        elif method in ["best_validation_model", "validation_softmax"]:
+            self.validate_single_model()
         else: 
             raise NotImplemented(method)
 
@@ -103,7 +100,7 @@ class SplitFedClient:
         self._weights_upload()
         self._weights_receive()
 
-    def best_validation_model_client(self): 
+    def validate_single_model(self): 
         self._weights_upload()
         if self.dataloader_validate == None: 
             raise Exception()
