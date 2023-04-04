@@ -7,6 +7,7 @@ import sys
 import logging
 
 from typing import Type, Optional
+from functools import partial
 
 from . import utils
 from .communicator import Communicator
@@ -14,6 +15,8 @@ from .communicator import Communicator
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
+tqdm.tqdm = partial(tqdm.tqdm, bar_format='{l_bar}{bar:20}{r_bar}{bar:-10b}')
+
 handler_console = logging.StreamHandler(stream=sys.stdout)
 format_console = logging.Formatter('[%(levelname)s]: %(name)s : %(message)s')
 handler_console.setFormatter(format_console)
@@ -71,7 +74,7 @@ class SplitFedClient:
         s_time_total = time.time()
         self.neural_network.to(self.device)
         self.neural_network.train()
-        for batch_idx, (inputs, targets) in enumerate(tqdm.tqdm(dataloader_train)):
+        for inputs, targets in tqdm.tqdm(dataloader_train):
             inputs, targets = inputs.to(self.device), targets.to(self.device)
             self._optimizer.zero_grad()
             outputs = self.neural_network(inputs)
@@ -86,9 +89,16 @@ class SplitFedClient:
         logger.info('training_time_per_iteration: ' + str(training_time_pr))
         msg = ['MSG_TRAINING_TIME_PER_ITERATION', self.conn.ip, training_time_pr]
         self.conn.send_msg(msg)
-        self._aggregate(self)
         return e_time_total - s_time_total
         
+    def aggregate(self, method): 
+        if method == "fed_avg":
+            self.fed_avg_client()
+        elif method == "best_validation_model":
+            self.best_validation_model_client()
+        else: 
+            raise NotImplemented(method)
+
     def fed_avg_client(self): 
         self._weights_upload()
         self._weights_receive()

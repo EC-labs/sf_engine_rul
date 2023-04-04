@@ -55,4 +55,5 @@ logger.info("Start Training")
 for r in range(config.R):
     logger.info(f'ROUND {r} START')
     training_time = client.train(dataloader_train)
+    client.aggregate("best_validation_model")
     client.validate(dataloader_validate)

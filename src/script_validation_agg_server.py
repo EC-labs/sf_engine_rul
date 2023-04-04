@@ -56,20 +56,20 @@ nn_unit = creator.neural_network
 nn_server_creator = creator.nn_server_create
 server = SplitFedServer(
     '0.0.0.0', config.SERVER_PORT, nn_unit, torch.optim.Adam,
-    torch.nn.MSELoss(), nn_server_creator, split_layer,
-    aggregate_method=SplitFedServer.best_validation_model,
+    torch.nn.MSELoss(), nn_server_creator, split_layer
 )
 server.optimizer(lr=LR)
 server.listen()
-time.sleep(40)
 
 for r in range(config.R):
     start = time.time()
     logger.info(f"Epoch {r}")
-    server.train(min_clients=6)
+    server.train()
+    server.aggregate("best_validation_model")
     outputs, targets = server.validate()
     rmse, mae = compute_rmse_mae(outputs, targets)
     logger.info(f"Validate: RMSE {rmse}\tMAE {mae}")
+
     end = time.time()
     training_times.append(end-start)
     persist_training_times(training_times, training_time_fp)

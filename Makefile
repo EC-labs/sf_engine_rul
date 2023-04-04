@@ -2,6 +2,7 @@ SHELL = /bin/bash
 
 NCLIENTS=1
 PROGRAM=rul_engine
+CPUS="1"
 
 ROOTDIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 SRCDIR=$(ROOTDIR)/src
@@ -18,7 +19,6 @@ COMMON_ENVIRONMENT=--env "NCLIENTS=$(NCLIENTS)"
 VOLUME_DATA=-v "$(ROOTDIR)/data:/usr/src/app/data"
 VOLUME_RESULTS=-v "$(ROOTDIR)/results:/usr/src/app/results"
 VOLUME_LOGS=-v "$(SRCDIR)/logs:/usr/src/app/logs"
-CPUS="1"
 CPUS_FLAG=--cpus=$(CPUS)
 COMMON_FLAGS=--rm --shm-size 4G
 BASE_LOGS=$(SRCDIR)/logs

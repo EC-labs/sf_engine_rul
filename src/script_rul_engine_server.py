@@ -60,7 +60,6 @@ server = SplitFedServer(
 )
 server.optimizer(lr=LR)
 server.listen()
-time.sleep(30)
 
 for r in range(config.R):
     start = time.time()

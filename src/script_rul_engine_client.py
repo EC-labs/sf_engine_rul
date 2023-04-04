@@ -39,7 +39,8 @@ dataloader_validate = DataLoader(
 logger.info('Create Client')
 client = SplitFedClient(
     config.SERVER_ADDR, config.SERVER_PORT, 'VGG5', split_layer, 
-    torch.nn.MSELoss(), torch.optim.Adam, neural_client
+    torch.nn.MSELoss(), torch.optim.Adam, neural_client,
+    creator.nn_unit_create(None),
 )
 client.optimizer(lr=LR)
 
