@@ -53,6 +53,7 @@ run: create_image create_network
 				--env ENGINE=$${ENGINES[$$i]} \
 				--name fedadapt_client_$$i \
 				$(IMAGE) $(SCRIPT)_client 1>"$(LOGS_DIR)/client_$$i.log" 2>&1 & \
+			sleep 3; \
 		done
 
 create_image: 

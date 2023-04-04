@@ -8,6 +8,7 @@ import functools
 import numpy as np
 import socket
 import time
+import random
 import logging
 
 from typing import List, Dict, Type, Iterable, Dict, Any
@@ -48,7 +49,8 @@ class SplitFedServerThread:
     _optimizer: torch.optim.Optimizer
 
     def __init__(
-        self, comm, neural_network, cls_optimizer, criterion
+        self, comm, neural_network, cls_optimizer, criterion,
+        aggregate_method=None
     ):
         self.comm = comm
         self.criterion = criterion
@@ -103,6 +105,17 @@ class SplitFedServerThread:
         )
         self.neural_network.load_state_dict(server_weights)
 
+    def validate_model(self): 
+        self.comm.send_msg(["MODEL_TO_VALIDATE", self.model_to_validate])
+        _, batch_num = self.comm.recv_msg(
+            expect_msg_type="MODEL_VALIDATION_ITERATIONS_NUMBER"
+        )
+        for i in tqdm.tqdm(range(batch_num)):
+            self.comm.recv_msg(expect_msg_type="MODEL_VALIDATION_ITERATION")
+        _, self.validate_model_result = self.comm.recv_msg(
+            expect_msg_type='MODEL_VALIDATION_RESULT'
+        )
+
     def validate(self): 
         _, iterations_number = self.comm.recv_msg(
             expect_msg_type='CLIENT_VALIDATION_ITERATIONS_NUMBER'
@@ -140,7 +153,7 @@ class SplitFedServer:
     def __init__(
         self, ip_address, server_port, neural_network_unit, 
         cls_optimizer: Type[torch.optim.Optimizer], criterion,
-        nn_server_creator, split_layer
+        nn_server_creator, split_layer, aggregate_method=None,
     ): 
         self.sock = socket.socket()
         self.sock.bind((ip_address, server_port))
@@ -153,6 +166,9 @@ class SplitFedServer:
         self.nn_server_creator = nn_server_creator
         self.split_layer = split_layer
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        if aggregate_method == None:
+            aggregate_method = self.fed_avg 
+        self.aggregate = aggregate_method
 
     def optimizer(self, *args, **kwargs): 
         self.struct_optimizer_constructor = StructOptimizerConstructor(
@@ -203,7 +219,7 @@ class SplitFedServer:
         for t in threads_training: 
             t.join()
         logger.debug("End threads training")
-        self.aggregate()
+        self.aggregate(self)
         self._nn_threads_update()
         self._weights_nn_unit_send(self.threads)
 
@@ -234,7 +250,7 @@ class SplitFedServer:
         for client_thread in list_client_threads: 
             client_thread.comm.send_msg(msg)
 
-    def aggregate(self): 
+    def fed_avg(self): 
         list_weights_concat = []
         distributed_inputs_total = functools.reduce(
             lambda acc, x: x.inputs_total + acc, self.threads, 0
@@ -255,6 +271,43 @@ class SplitFedServer:
         aggregated_model = utils.fed_avg(
             zero_model, list_weights_concat
         )
+        self.neural_network_unit.load_state_dict(aggregated_model)
+
+    def best_validation_model(self): 
+        validation_threads = []
+        best_validation_result = None
+        num_threads = len(self.threads)
+        for i, assigned_idx in enumerate(random.sample(range(num_threads), num_threads)): 
+            thread = self.threads[i]
+            _, weights_client = thread.comm.recv_msg(
+                expect_msg_type='MSG_LOCAL_WEIGHTS_CLIENT_TO_SERVER'
+            )
+            weights_concat = utils.concat_weights(
+                self.neural_network_unit.state_dict(),
+                weights_client,
+                thread.neural_network.state_dict(),
+            )
+            assigned_client = self.threads[assigned_idx]
+            t = threading.Thread(
+                target=assigned_client.validate_model,
+            )
+            assigned_client.model_to_validate = weights_concat
+            validation_threads.append((t, assigned_client, assigned_idx))
+        for t, _, _ in validation_threads: 
+            t.start()
+        for i, (t, assigned_client, j) in enumerate(validation_threads): 
+            t.join()
+            validation_result = assigned_client.validate_model_result
+            logger.info(f"{i} -> {j}: {validation_result}")
+            if ((best_validation_result == None) or 
+                (validation_result < best_validation_result[0])
+            ): 
+                best_validation_result = (
+                    validation_result, assigned_client.model_to_validate, i
+                )
+        assert best_validation_result is not None
+        aggregated_model = best_validation_result[1]
+        logger.info(f"Selected model from client {best_validation_result[2]}")
         self.neural_network_unit.load_state_dict(aggregated_model)
 
     def validate(self): 

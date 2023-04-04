@@ -1,6 +1,7 @@
 import torch
 import tqdm
 import time
+import math
 import numpy as np
 import sys
 import logging
@@ -34,13 +35,19 @@ class SplitFedClient:
     def __init__(
         self, server_addr, server_port, model_name, 
         split_layer, criterion, cls_optimizer: Type[torch.optim.Optimizer], 
-        neural_network: torch.nn.Module,
+        neural_network: torch.nn.Module, neural_network_unit: torch.nn.Module,
+        dataloader_validate=None, aggregate_method=None
     ):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model_name = model_name
         self.neural_network = neural_network
         self.criterion = criterion
         self.cls_optimizer = cls_optimizer
+        self.neural_network_unit = neural_network_unit
+        self.dataloader_validate = dataloader_validate
+        if aggregate_method == None:
+            aggregate_method = self.fed_avg_client
+        self._aggregate = aggregate_method
         logger.info('Connecting to Server.')
         self.conn = Communicator()
         self.conn.connect((server_addr, server_port))
@@ -79,10 +86,38 @@ class SplitFedClient:
         logger.info('training_time_per_iteration: ' + str(training_time_pr))
         msg = ['MSG_TRAINING_TIME_PER_ITERATION', self.conn.ip, training_time_pr]
         self.conn.send_msg(msg)
-        self._weights_upload()
-        self._weights_receive()
+        self._aggregate(self)
         return e_time_total - s_time_total
         
+    def fed_avg_client(self): 
+        self._weights_upload()
+        self._weights_receive()
+
+    def best_validation_model_client(self): 
+        self._weights_upload()
+        if self.dataloader_validate == None: 
+            raise Exception()
+        unit_weights = self.conn.recv_msg(expect_msg_type="MODEL_TO_VALIDATE")[1]
+        self.neural_network_unit.load_state_dict(unit_weights)
+        iter_validate = (len(self.dataloader_validate) 
+            if self.dataloader_validate != None else 0
+        )
+        msg = ['MODEL_VALIDATION_ITERATIONS_NUMBER', iter_validate]
+        self.conn.send_msg(msg)
+        total_validation = 0
+        total_size = len(self.dataloader_validate.dataset)
+        with torch.no_grad(): 
+            for i, (inputs, targets) in enumerate(self.dataloader_validate):
+                outputs = self.neural_network_unit(inputs)
+                total_validation += torch.sum((targets-outputs)**2).item()
+                msg = ['MODEL_VALIDATION_ITERATION', i]
+                self.conn.send_msg(msg)
+        mse = total_validation/total_size
+        rmse = math.sqrt(mse)
+        msg = ['MODEL_VALIDATION_RESULT', rmse]
+        self.conn.send_msg(msg)
+        self._weights_receive()
+
     def validate(
         self, dataloader_validate: Optional[torch.utils.data.DataLoader] = None
     ): 
