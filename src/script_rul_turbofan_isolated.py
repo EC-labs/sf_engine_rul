@@ -6,11 +6,10 @@ import yaml
 import json
 import time
 from torch.utils.data import DataLoader
-from typing import Optional
 
 import config
 from models.turbofan import (
-    CreatorCNNTurbofan, train_one_epoch, validate, FileCNNRULStruct,
+    CreatorCNNTurbofanIsolated, train_one_epoch, validate, FileCNNRULStruct,
     model_recreate_cnnrul, improved_validation_cnnrul, equivalent_config_cnnrul
 )
 from models import file_model
@@ -36,7 +35,7 @@ def load_persisted_model(model_config, persisted_model_path):
     except file_model.MissingFile: 
         return None, None
 
-def main():
+def main(): 
     training_times = []
     validations = []
 
@@ -45,8 +44,10 @@ def main():
         model_config = yaml.safe_load(f)
 
     frequency = model_config["dataset"]["frequency"]
+    engine = os.getenv("ENGINE") or '2'
     relative_program_directory = (
-        f"frequency={frequency}/program={config.PROGRAM_NAME}"
+        f"frequency={frequency}/program={config.PROGRAM_NAME}/"
+        f"engine={engine}"
     )
     program_directory = os.path\
         .join(config.evaluation_directory, relative_program_directory)
@@ -58,13 +59,16 @@ def main():
     persisted_model, neural = load_persisted_model(model_config, model_path)
 
     cpu_count = multiprocessing.cpu_count()
-    creator = CreatorCNNTurbofan(model_config=model_config)
+    creator = CreatorCNNTurbofanIsolated(model_config=model_config)
     neural, datasets = creator.create_model_datasets(neural)
     dataloader_train = DataLoader(
         datasets["train"], batch_size=config.B, shuffle=True, num_workers=cpu_count
     )
     dataloader_validation = DataLoader(
         datasets["validation"], batch_size=config.B, shuffle=True, num_workers=cpu_count
+    )
+    dataloader_validation_total = DataLoader(
+        datasets["validation_total"], batch_size=config.B, shuffle=True, num_workers=cpu_count
     )
     optimizer = torch.optim.Adam(neural.parameters(), lr=config.LR)
     loss_criterion = torch.nn.MSELoss()
@@ -79,9 +83,10 @@ def main():
         logger.info("Validate")
         loss_validation = validate(neural, dataloader_validation)
         end = time.time()
+        loss_validation_total = validate(neural, dataloader_validation_total)
         training_times.append(end-start)
         persist_json(training_times, training_time_path)
-        validations.append(loss_validation)
+        validations.append((loss_validation, loss_validation_total))
         persist_json(validations, validations_path)
         candidate_model = FileCNNRULStruct(
             neural.state_dict(), creator.model_config, config.runtime_config,

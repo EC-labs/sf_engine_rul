@@ -1,4 +1,5 @@
-epochs: 50
+epochs: 100
 batch_size: 128
 learning_rate: 0.001
 seed: 7042018
+evaluation_directory: "evaluation=2023-04-06"

@@ -152,6 +152,102 @@ def normalization(data, minima, maxima, skip = ["cycle", "unit" , "hs"]):
     return data
 
 
+class CreatorCNNTurbofanIsolated(FactoryModelDatasets):
+
+    def __init__(self, model_config=None): 
+        if not model_config: 
+            model_config_path = "models/turbofan.yml"
+            with open(model_config_path, "r") as f: 
+                self.model_config = yaml.safe_load(f)
+        else: 
+            self.model_config = model_config
+
+    def create_model_datasets(self, neural=None):
+        config_turbofan = deepcopy(self.model_config)
+        config_dataset = config_turbofan["dataset"]
+        config_model = config_turbofan["models"][0]
+        X_v_to_keep = config_dataset["X_v_to_keep"]
+        X_s_to_keep = config_dataset["X_s_to_keep"]
+        stepsize_sample = config_dataset["stepsize_sample"]
+        considered_length = config_dataset["considered_length"]
+        frequency = config_dataset["frequency"]
+        validation_size = config_dataset["validation_size"]
+        ENGINE = int(os.getenv("ENGINE", "2.0"))
+
+        df_turbofan, all_fc = read_in_data(
+            "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5",
+            frequency, X_v_to_keep, X_s_to_keep, True, True
+        )
+        df_turbofan = df_turbofan.drop(columns = ["hs"])
+        all_variables_x = X_v_to_keep + X_s_to_keep + all_fc
+        units = np.unique(df_turbofan.loc[:, "unit"])
+
+        dict_training_flights = {}
+        dict_validation_flights = {}
+
+        for unit in units:
+            last_flight = int(max(df_turbofan.loc[df_turbofan["unit"] == unit, "cycle"]))
+            all_flights = list(range(1, last_flight + 1, 1))
+            validation_flights = set(np.random.choice(
+                np.array(all_flights),
+                size=math.floor(validation_size*len(all_flights)),
+                replace=False,
+            ))
+            training_flights =  set(all_flights) - set(validation_flights)
+            dict_training_flights[unit] = training_flights
+            dict_validation_flights[unit] = validation_flights
+        dataset_train = EngineSimulationDataset(
+            ENGINE, df_turbofan, stepsize_sample, all_variables_x,
+            considered_length, dict_training_flights
+        )
+        train_minima, train_maxima = dataset_train.minima, dataset_train.maxima
+        dataset_valid = EngineSimulationDataset(
+            ENGINE, df_turbofan, stepsize_sample, all_variables_x,
+            considered_length, dict_validation_flights, 
+            train_minima, train_maxima
+        )
+        dataset_total_train = TurbofanSimulationDataset(
+            df_turbofan, stepsize_sample, all_variables_x,
+            considered_length, dict_training_flights
+        )
+        train_total_minima = dataset_total_train.minima
+        train_total_maxima = dataset_total_train.maxima
+        dataset_total_valid = TurbofanSimulationDataset(
+            df_turbofan, stepsize_sample, all_variables_x,
+            considered_length, dict_validation_flights, 
+            train_total_minima, train_total_maxima
+        )
+
+        df_turbofan_test, _ = read_in_data(
+            "data/raw/turbofan_simulation/data_set2/N-CMAPSS_DS02-006.h5",
+            frequency, X_v_to_keep, X_s_to_keep, False, True
+        )
+        df_turbofan_test = df_turbofan_test.drop(columns = ["hs"])
+        test_units = np.unique(df_turbofan_test.loc[:, "unit"])
+
+        dict_test_flights = {} 
+        for unit in test_units:
+            last_flight = int(max(df_turbofan_test.loc[df_turbofan_test["unit"] == unit, "cycle"]))
+            all_flights = list(range(1, last_flight+1, 1))
+            dict_test_flights[unit] = all_flights
+
+        dataset_test = TurbofanSimulationDataset(
+            df_turbofan_test, stepsize_sample, all_variables_x,
+            considered_length, dict_test_flights, train_minima, train_maxima
+        )
+
+        neural = neural if neural != None else CNNRUL(config_model, "Unit")
+        return (
+            neural,
+            {
+                "train": dataset_train, 
+                "validation": dataset_valid, 
+                "validation_total": dataset_total_valid,
+                "test": dataset_test,
+            }
+        )
+
+
 class CreatorCNNTurbofan(FactoryModelDatasets):
 
     def __init__(self, model_config=None): 
@@ -502,12 +598,14 @@ def sum_absolute_error(error):
 
 def propagate_flight_samples(neural, dataset_test, indices): 
     outputs, targets = torch.tensor([]), torch.tensor([])
-    for idx in indices: 
-        entry, target = dataset_test[idx]
-        output = neural(entry)
-        outputs = torch.cat((output, outputs), 0)
-        targets = torch.cat((targets, target), 0)
-    return outputs, targets
+    neural.eval()
+    with torch.no_grad():
+        for idx in indices: 
+            entry, target = dataset_test[idx]
+            output = neural(entry)
+            outputs = torch.cat((output, outputs), 0)
+            targets = torch.cat((target, targets), 0)
+        return outputs, targets
 
 def test(neural, dataset_test):
     sum_se = sum_ae = 0 

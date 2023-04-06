@@ -3,7 +3,7 @@ dataset:
   X_s_to_keep: ["Wf", "Nf", "T24", "T30", "T48", "T50", "P2", "P50"] 
   stepsize_sample: 10
   considered_length: 50
-  frequency: 60
+  frequency: 20
   validation_size: 0.2
 
 models: 

@@ -1,9 +1,15 @@
 SHELL = /bin/bash
 
+# Modify these variables
 NCLIENTS=1
 PROGRAM=rul_engine
+CENTRALIZED_PROGRAM=rul_turbofan
+TEST_PROGRAM_DIRECTORY=
+ISOLATED_ENGINE=2
 CPUS="1"
 
+
+# Do not modify these variables
 ROOTDIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 SRCDIR=$(ROOTDIR)/src
 
@@ -38,6 +44,7 @@ run: create_image create_network
 			$(COMMON_ENVIRONMENT) \
 			$(CONTAINER_NETWORK) \
 			$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
+			--env PROGRAM_NAME=$(PROGRAM) \
 			--name fedadapt_server \
 			$(IMAGE) $(SCRIPT)_server 1>"$(LOGS_DIR)/server.log" 2>&1 &
 		@sleep 3
@@ -50,6 +57,7 @@ run: create_image create_network
 				$(COMMON_ENVIRONMENT) \
 				$(CONTAINER_NETWORK) \
 				$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
+				--env PROGRAM_NAME=$(PROGRAM) \
 				--env ENGINE=$${ENGINES[$$i]} \
 				--name fedadapt_client_$$i \
 				$(IMAGE) $(SCRIPT)_client 1>"$(LOGS_DIR)/client_$$i.log" 2>&1 & \
@@ -69,29 +77,21 @@ run_centralized: create_image
 			$(COMMON_FLAGS) \
 			$(CPUS_FLAG) \
 			$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
-			--name turbofan_centralized \
+			--name turbofan_$(CENTRALIZED_PROGRAM) \
+			--env ENGINE=$(ISOLATED_ENGINE) \
+			--env PROGRAM_NAME=$(CENTRALIZED_PROGRAM) \
 			-it \
-			$(IMAGE) script_rul_turbofan
+			$(IMAGE) script_$(CENTRALIZED_PROGRAM)
 	
-test_centralized: create_image
+test_model: create_image
 		docker run \
 			$(CONTAINER_LABELS) \
 			$(COMMON_FLAGS) \
 			$(CPUS_FLAG) \
 			$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
-			--name turbofan_centralized_test \
+			--env PROGRAM_NAME=test_model \
 			-it \
-			$(IMAGE) script_test_turbofan
-
-test_decentralized: create_image
-		docker run \
-			$(CONTAINER_LABELS) \
-			$(COMMON_FLAGS) \
-			$(CPUS_FLAG) \
-			$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
-			--name turbofan_test_engine \
-			-it \
-			$(IMAGE) script_test_engine
+			$(IMAGE) script_test_model $(TEST_PROGRAM_DIRECTORY)
 
 clean_resources:
 		cnts=($$(docker ps -a --filter 'label=$(GROUP_LABEL)' | awk '{if(NR > 1) { print $$1 } }')); \

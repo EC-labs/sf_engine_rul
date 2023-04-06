@@ -6,6 +6,10 @@ import logging
 import yaml
 
 LOG_LEVEL = os.getenv("LOG_LEVEL") or logging.INFO
+PROGRAM_NAME = os.getenv("PROGRAM_NAME") 
+if PROGRAM_NAME == None: 
+    raise Exception()
+
 logging.basicConfig(
     format='%(asctime)s [%(levelname)s]:%(name)s:%(threadName)s: %(message)s',
     level=LOG_LEVEL,
@@ -42,6 +46,13 @@ total_flops = 8488192
 split_layer = 2
 model_len = 7
 results_dir = os.path.join(home, "results")
+evaluation_directory = os.path.join(
+    results_dir, runtime_config["evaluation_directory"]
+)
+if not os.path.isdir(evaluation_directory): 
+    os.mkdir(evaluation_directory)
+
+
 
 R = runtime_config["epochs"]
 LR = runtime_config["learning_rate"]
