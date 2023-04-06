@@ -10,8 +10,11 @@ import socket
 import time
 import random
 import logging
+import statistics
 
-from typing import List, Dict, Type, Iterable, Dict, Any, OrderedDict, Optional
+from typing import (
+    List, Dict, Type, Iterable, Dict, Any, OrderedDict, Optional, Set
+)
 from functools import partial
 from dataclasses import dataclass
 
@@ -35,14 +38,13 @@ class ThreadValidationException(Exception):
     pass
 
 
-
 class ValidateModelState:
 
 
     unit_state_dict: OrderedDict
     _validation_result: Optional[float]
 
-    def __init__(self, unit_state_dict): 
+    def __init__(self, unit_state_dict: OrderedDict): 
         self.unit_state_dict = unit_state_dict
         self._validation_result = None
 
@@ -55,6 +57,56 @@ class ValidateModelState:
     @validation_result.setter
     def validation_result(self, value): 
         self._validation_result = value
+
+
+class ValidatedModel: 
+
+
+    unit_state_dict: OrderedDict 
+    validation_result: float
+
+    def __init__(self, unit_state_dict, validation_result): 
+        self.unit_state_dict = unit_state_dict
+        self.validation_result = validation_result
+
+    def is_better(self, other): 
+        if not isinstance(other, ValidatedModel): 
+            raise Exception()
+        return self.validation_result <= other.validation_result
+
+
+class CollectionValidateModelState:
+
+
+    _validate_models: Dict[int, ValidateModelState]
+
+    def __init__(self):
+        self._validate_models = {}
+        self._populated = False
+        self._cached_results = None
+
+    def add_model(self, model_state_dict: OrderedDict, client_index): 
+        self._validate_models[client_index] = ValidateModelState(model_state_dict)
+
+    def models_to_validate(self) -> Dict[int, OrderedDict]: 
+        return {
+            client_index: validate_model.unit_state_dict 
+            for client_index, validate_model in self._validate_models.items()
+        }
+    
+    @property
+    def validation_result(self): 
+        if self._populated == False: 
+            raise Exception()
+        return self._validate_models
+
+    @validation_result.setter
+    def validation_result(self, value: Dict[int, float]): 
+        if self._populated == True: 
+            raise Exception()
+        self._populated = True
+        for client_index, result in value.items(): 
+            self._validate_models[client_index].validation_result = result
 
 
 class BestModelStateValidation: 
@@ -161,6 +213,7 @@ class SplitFedServerThread:
     comm: Communicator
     _optimizer: torch.optim.Optimizer
     _validate_model_state: Optional[ValidateModelState]
+    _unit_state_dict: Optional[OrderedDict]
 
     def __init__(
         self, comm, neural_network, cls_optimizer, criterion,
@@ -172,6 +225,7 @@ class SplitFedServerThread:
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self._loss_validation = None
         self._validate_model_state = None
+        self._unit_state_dict = None
          
     def optimizer(self, *args, **kwargs): 
         self._optimizer = self.cls_optimizer(
@@ -198,6 +252,7 @@ class SplitFedServerThread:
 
     def train_offloading(self):
         self._loss_validation = None
+        self._unit_state_dict = None
         self.neural_network.train()
         _, iterations_number = self.comm.recv_msg(
             expect_msg_type='CLIENT_TRAINING_ITERATIONS_NUMBER'
@@ -223,15 +278,22 @@ class SplitFedServerThread:
             expect_msg_type='MSG_TRAINING_TIME_PER_ITERATION'
         )
 
+    @property
+    def unit_state_dict(self) -> OrderedDict: 
+        if self._unit_state_dict == None: 
+            raise Exception()
+        return self._unit_state_dict
+
     def neural_network_unit_compose(self, neural_network_unit): 
         _, weights_client = self.comm.recv_msg(
             expect_msg_type='MSG_LOCAL_WEIGHTS_CLIENT_TO_SERVER'
         )
-        return utils.concat_weights(
+        self._unit_state_dict = utils.concat_weights(
             neural_network_unit.state_dict(),
             weights_client,
             self.neural_network.state_dict(),
         )
+        return self._unit_state_dict
 
     def neural_network_load_server(self, nn_unit): 
         server_weights = utils.split_weights_server(
@@ -257,6 +319,21 @@ class SplitFedServerThread:
         _, validate_model_state.validation_result = self.comm.recv_msg(
             expect_msg_type='MODEL_VALIDATION_RESULT'
         )
+
+    def validate_models(self, validate_models: CollectionValidateModelState): 
+        self.comm.send_msg([
+            "MODELS_TO_VALIDATE", validate_models.models_to_validate()
+        ])
+        _, batch_num = self.comm.recv_msg(
+            expect_msg_type="MODELS_VALIDATION_ITERATIONS_NUMBER"
+        )
+        for i in tqdm.tqdm(range(batch_num)):
+            self.comm.recv_msg(expect_msg_type="MODELS_VALIDATION_ITERATION")
+        _, validation_results = self.comm.recv_msg(
+            expect_msg_type='MODELS_VALIDATION_RESULT'
+        )
+        validate_models.validation_result = validation_results
+
 
     def validate(self): 
         _, iterations_number = self.comm.recv_msg(
@@ -371,9 +448,10 @@ class SplitFedServer:
             self.best_validation_model()
         elif method == "validation_softmax": 
             self.validation_softmax()
-
+        elif method == "full_best_validation": 
+            self.full_best_validation()
         else: 
-            raise NotImplemented(method)
+            raise NotImplementedError(method)
         self._nn_threads_update()
         self._weights_nn_unit_send(self.threads)
 
@@ -391,6 +469,56 @@ class SplitFedServer:
     def _weights_nn_unit_send(self, list_client_threads): 
         for client_thread in list_client_threads: 
             client_thread.neural_network_load_client(self.neural_network_unit.state_dict())
+
+    def compose_unit_neural_networks(self): 
+        for client_thread in self.threads: 
+            client_thread.neural_network_unit_compose(self.neural_network_unit)
+
+    def validate_models(self) -> List[ValidatedModel]: 
+        collection_threads = []
+        for client_thread in self.threads:
+            model_collection = CollectionValidateModelState()
+            for client_index_, client_thread_ in enumerate(self.threads): 
+                model_collection.add_model(
+                    client_thread_.unit_state_dict, client_index_
+                )
+            thread_execution = threading.Thread(
+                target=client_thread.validate_models, args=(model_collection, )
+            )
+            collection_threads.append(
+                CollectionThreadContext(thread_execution, model_collection)
+            )
+        for thread_context in collection_threads:
+            thread_context.start_thread()
+        collection_combined = CollectionCombinedValidations()
+        for thread_context in collection_threads: 
+            thread_context.join_thread()
+            client_validations = thread_context.model_collection
+            collection_combined.add_validation_results(client_validations) 
+        return collection_combined\
+            .compute_models_validation_result()
+
+    def full_best_validation(self): 
+        self.compose_unit_neural_networks()
+        validated_models = self.validate_models()
+        unit_state_dict = self.select_best_model(validated_models)
+        self.neural_network_unit.load_state_dict(unit_state_dict)
+
+    def select_best_model(self, validated_models: List[ValidatedModel]): 
+        best_model = None
+        validation_results = [model.validation_result for model in validated_models]
+        logger.info(validation_results)
+        for model in validated_models: 
+            if (best_model == None) or (not best_model.is_better(model)): 
+                best_model = model
+        if best_model == None: 
+            raise Exception()
+        logger.info("Selected model with validation result:"
+                    f"{best_model.validation_result}")
+        return best_model.unit_state_dict
+
+    def random_validation(self): 
+        pass
 
     def fed_avg(self): 
         list_weights_concat = []
@@ -551,3 +679,82 @@ class ModelStateValidationThreadContext:
         return self.validate_model_state.validation_result
 
 
+class CollectionThreadContext: 
+
+
+    thread_execution: threading.Thread
+    model_collection: CollectionValidateModelState
+
+    def __init__(self, thread_execution, model_collection): 
+        self.thread_execution = thread_execution
+        self.model_collection = model_collection
+
+    def start_thread(self): 
+        self.thread_execution.start()
+
+    def join_thread(self): 
+        self.thread_execution.join()
+
+
+
+class ModelCombinedValidations: 
+
+
+    unit_state_dict: OrderedDict
+    validation_results: List[float]
+    _cached_computation: Optional[ValidatedModel]
+
+    def __init__(self, unit_state_dict): 
+        self.unit_state_dict = unit_state_dict
+        self.validation_results = []
+
+    def add_validation_result(self, result: ValidateModelState):
+        self._cached_computation = None
+        self.validation_results.append(result.validation_result)
+
+    def compute_summarised_validation_result(self) -> ValidatedModel: 
+        if self._cached_computation != None: 
+            return self._cached_computation
+        summarized_validation = statistics.median(self.validation_results)
+        self._cached_computation = ValidatedModel(
+            self.unit_state_dict, summarized_validation
+        )
+        return self._cached_computation
+
+
+
+
+class CollectionCombinedValidations: 
+    
+
+    collection_models: Dict[int, ModelCombinedValidations]
+    _cached_result: Optional[List[ValidatedModel]]
+
+    def __init__(self): 
+        self.collection_models = {}
+        self._cached_result = None
+
+    def add_validation_results(
+        self, client_validations: CollectionValidateModelState,
+    ): 
+        for entry in client_validations.validation_result.items(): 
+            client_index, validation_result = entry
+            self._add_validation_result(client_index, validation_result)
+
+    def _add_validation_result(self, client_index, validation_result): 
+        if self.collection_models.get(client_index) == None: 
+            unit_state_dict = validation_result.unit_state_dict
+            model_validations = ModelCombinedValidations(unit_state_dict)
+            self.collection_models[client_index] = model_validations
+        self.collection_models[client_index].add_validation_result(validation_result)
+
+    def compute_models_validation_result(
+        self
+    ) -> List[ValidatedModel]:
+        if self._cached_result != None: 
+            return self._cached_result
+        self._cached_result = [
+            model.compute_summarised_validation_result()
+            for model in self.collection_models.values()
+        ]
+        return self._cached_result

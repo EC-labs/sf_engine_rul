@@ -93,8 +93,10 @@ class SplitFedClient:
             self.fed_avg_client()
         elif method in ["best_validation_model", "validation_softmax"]:
             self.validate_single_model()
+        elif method in ["full_best_validation"]: 
+            self.validate_models()
         else: 
-            raise NotImplemented(method)
+            raise NotImplementedError(method)
 
     def fed_avg_client(self): 
         self._weights_upload()
@@ -123,6 +125,34 @@ class SplitFedClient:
         rmse = math.sqrt(mse)
         msg = ['MODEL_VALIDATION_RESULT', rmse]
         self.conn.send_msg(msg)
+        self._weights_receive()
+
+    def validate_models(self): 
+        self._weights_upload()
+        _, models = self.conn.recv_msg(expect_msg_type="MODELS_TO_VALIDATE")
+        if self.dataloader_validate == None: 
+            raise Exception()
+        num_batches = len(self.dataloader_validate)
+        total_iterations = len(models)*num_batches
+        msg_type = "MODELS_VALIDATION_ITERATIONS_NUMBER"
+        self.conn.send_msg([msg_type, total_iterations])
+
+        model_validation = {}
+        total_size = len(self.dataloader_validate.dataset)
+        for model_index, model in models.items(): 
+            total_validation = 0
+            self.neural_network_unit.load_state_dict(model)
+            with torch.no_grad(): 
+                for i, (inputs, targets) in enumerate(self.dataloader_validate):
+                    outputs = self.neural_network_unit(inputs)
+                    total_validation += torch.sum((targets-outputs)**2).item()
+                    msg = ['MODELS_VALIDATION_ITERATION', i]
+                    self.conn.send_msg(msg)
+            mse = total_validation/total_size
+            rmse = math.sqrt(mse)
+            model_validation[model_index] = rmse
+        msg_type = "MODELS_VALIDATION_RESULT"
+        self.conn.send_msg([msg_type, model_validation])
         self._weights_receive()
 
     def validate(
