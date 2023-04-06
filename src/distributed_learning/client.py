@@ -93,9 +93,9 @@ class SplitFedClient:
             self.fed_avg_client()
         elif method in ["best_validation_model", "validation_softmax"]:
             self.validate_single_model()
-        elif method in ["full_best_validation"]: 
+        elif method in ["full_best_validation", "full_softmax"]: 
             self.validate_models()
-        else: 
+        else:
             raise NotImplementedError(method)
 
     def fed_avg_client(self): 

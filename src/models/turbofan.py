@@ -617,6 +617,7 @@ class CNNRUL(nn.Module):
                             in_features=x[1], out_features=x[2], bias=True
                         ),
                         nn.ReLU(inplace = True),
+                        nn.Dropout(0.5)
                     ])
                 else:
                     denses.extend([

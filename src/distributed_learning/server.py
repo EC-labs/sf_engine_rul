@@ -13,7 +13,7 @@ import logging
 import statistics
 
 from typing import (
-    List, Dict, Type, Iterable, Dict, Any, OrderedDict, Optional, Set
+    List, Dict, Type, Iterable, Dict, Any, OrderedDict, Optional, Union
 )
 from functools import partial
 from dataclasses import dataclass
@@ -171,7 +171,10 @@ class ValidationSoftmax:
         self._unit_state_dicts = []
         self._softmax = None
     
-    def add_validation_result(self, validate_model_state: ValidateModelState): 
+    def add_validation_result(
+        self, 
+        validate_model_state: Union[ValidateModelState, ValidatedModel],
+    ): 
         self._validation_results = torch.cat(
             (
                 self._validation_results, 
@@ -185,9 +188,12 @@ class ValidationSoftmax:
         inverse_validations = torch.pow(self._validation_results, -1)
         mean_inverse = torch.mean(inverse_validations)
         std_inverse = torch.std(inverse_validations)
-        normalized_inverse = (inverse_validations-mean_inverse)/std_inverse
+        normalized_inverse = inverse_validations
+        if std_inverse > 1e-6: 
+            normalized_inverse = (inverse_validations-mean_inverse)/std_inverse
         softmax = torch.nn.Softmax(dim=0)
         self._softmax = softmax(normalized_inverse).squeeze(1).tolist()
+        return self._softmax
 
     @property
     def softmax(self) -> List: 
@@ -450,6 +456,8 @@ class SplitFedServer:
             self.validation_softmax()
         elif method == "full_best_validation": 
             self.full_best_validation()
+        elif method == "full_softmax": 
+            self.full_softmax()
         else: 
             raise NotImplementedError(method)
         self._nn_threads_update()
@@ -498,11 +506,30 @@ class SplitFedServer:
         return collection_combined\
             .compute_models_validation_result()
 
+    def full_softmax(self): 
+        self.compose_unit_neural_networks()
+        validated_models = self.validate_models()
+        unit_state_dict = self.global_softmax(validated_models)
+        self.neural_network_unit.load_state_dict(unit_state_dict)
+
     def full_best_validation(self): 
         self.compose_unit_neural_networks()
         validated_models = self.validate_models()
         unit_state_dict = self.select_best_model(validated_models)
         self.neural_network_unit.load_state_dict(unit_state_dict)
+
+    def global_softmax(self, validated_models: List[ValidatedModel]): 
+        validation_results = [model.validation_result for model in validated_models]
+        logger.info(validation_results)
+        validation_softmax = ValidationSoftmax()
+        for model in validated_models: 
+            validation_softmax.add_validation_result(model)
+        validation_softmax.compute_softmax()
+        logger.info(validation_softmax.softmax)
+        zero_model = utils.zero_init(self.neural_network_unit).state_dict()
+        return utils.fed_avg(
+            zero_model, list(validation_softmax.zip_state_dict_softmax())
+        )
 
     def select_best_model(self, validated_models: List[ValidatedModel]): 
         best_model = None
