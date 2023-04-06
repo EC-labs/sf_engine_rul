@@ -48,4 +48,5 @@ logger.info("Start Training")
 for r in range(config.R):
     logger.info(f'ROUND {r} START')
     training_time = client.train(dataloader_train)
+    client.aggregate("fed_avg")
     client.validate(dataloader_validate)

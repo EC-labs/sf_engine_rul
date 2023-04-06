@@ -4,6 +4,8 @@ set -e
 
 script_directory="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
+program_name="rul_engine"
+
 docker build \
   -t fedadapt/base_image "$script_directory"
 
@@ -17,6 +19,7 @@ docker run \
   -v "${script_directory}/../data:/usr/src/app/data" \
   -v "${script_directory}/logs:/usr/src/app/logs" \
   --env "ENGINE=20" \
+  --env "PROGRAM_NAME=${program_name}" \
   --name fedadapt_client \
   --shm-size 4G \
-  fedadapt/base_image "script_rul_engine_client"
+  fedadapt/base_image "script_${program_name}_client"

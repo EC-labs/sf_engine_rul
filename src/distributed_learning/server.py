@@ -379,11 +379,14 @@ class SplitFedServer:
     ): 
         self.sock = socket.socket()
         self.sock.bind((ip_address, server_port))
+        self.sock.settimeout(5)
         self.neural_network_unit = neural_network_unit
         self.cls_optimizer = cls_optimizer
         self.threads = []
         self.pending_clients = []
         self.pending_lock = threading.Lock()
+        self._stop_server = False
+        self._stop_server_lock = threading.Lock()
         self.criterion = criterion
         self.nn_server_creator = nn_server_creator
         self.split_layer = split_layer
@@ -408,11 +411,28 @@ class SplitFedServer:
 
     def _listen(self): 
         logger.info("Ready to connect")
+
         while True:
-            self.sock.listen(5)
-            (sock, (ip, _)) = self.sock.accept()
-            logger.info(f'Client connected: {ip}')
-            self.create_thread(Communicator(sock=sock))
+            if self.stop_server:
+                return
+            try: 
+                self.sock.listen(5)
+                (sock, (ip, _)) = self.sock.accept()
+                logger.info(f'Client connected: {ip}')
+                self.create_thread(Communicator(sock=sock))
+            except socket.timeout: 
+                continue
+
+
+    @property
+    def stop_server(self): 
+        with self._stop_server_lock:
+            return self._stop_server
+
+    @stop_server.setter
+    def stop_server(self, value: bool): 
+        with self._stop_server_lock: 
+            self._stop_server = value
 
     def listen(self): 
         if not hasattr(self, "struct_optimizer_constructor"): 
@@ -441,7 +461,7 @@ class SplitFedServer:
 
     def train(self, min_clients=1):
         self._add_pending_clients()
-        while len(self.threads) < min_clients: 
+        while (len(self.threads) < min_clients) and (not self.stop_server): 
             logger.info("Not enough clients connected")
             self._add_pending_clients()
             time.sleep(2)
