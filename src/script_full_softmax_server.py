@@ -35,7 +35,7 @@ def load_persisted_model(model_config, persisted_model_path):
     except file_model.MissingFile: 
         return None, None
 
-def main():
+def main(): 
     training_times = []
     validations = []
 
@@ -44,8 +44,13 @@ def main():
         model_config = yaml.safe_load(f)
 
     frequency = model_config["dataset"]["frequency"]
+    faulty_directory = ""
+    if config.FAULTY:
+        faulty_directory = f"faulty_client={config.FAULTY_CLIENT}/"
     relative_program_directory = (
-        f"frequency={frequency}/program={config.PROGRAM_NAME}"
+        f"frequency={frequency}/"
+        f"{faulty_directory}"
+        f"program={config.PROGRAM_NAME}/"
     )
     program_directory = os.path\
         .join(config.evaluation_directory, relative_program_directory)
@@ -71,7 +76,7 @@ def main():
         start = time.time()
         logger.info(f"Epoch {r}")
         server.train(min_clients=6)
-        server.aggregate("best_validation_model")
+        server.aggregate("full_softmax")
         outputs, targets = server.validate()
         rmse, mae = compute_rmse_mae(outputs, targets)
         logger.info(f"Validate: RMSE {rmse}\tMAE {mae}")

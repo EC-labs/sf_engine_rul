@@ -1,7 +1,7 @@
 import logging
 import os 
 import sys
-import yaml
+import json
 
 import config
 from models import file_model
@@ -9,6 +9,9 @@ from models.turbofan import (
     model_recreate_cnnrul, test_per_flight, CreatorCNNTurbofan
 )
 
+def persist_json(json_serializable, file_path): 
+    with open(file_path, "w") as f: 
+        json.dump(json_serializable, f)
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +31,10 @@ def main():
 
     _, datasets = CreatorCNNTurbofan(model_config=persisted_model.model_config_context)\
         .create_model_datasets(neural=neural)
-    test_file_path = os.path.join(directory_path, "predicted_real.json")
-    test_per_flight(neural, datasets["test"], test_file_path)
+    test_predicted_path = os.path.join(directory_path, "predicted_real.json")
+    test_metrics_path = os.path.join(directory_path, "test_metrics.json")
+    rmse, mae = test_per_flight(neural, datasets["test"], test_predicted_path)
+    persist_json({"rmse": rmse, "mae": mae}, test_metrics_path)
 
 if __name__ == "__main__": 
     main()

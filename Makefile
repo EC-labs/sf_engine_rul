@@ -1,12 +1,14 @@
 SHELL = /bin/bash
 
 # Modify these variables
+CPUS="1"
 NCLIENTS=1
 PROGRAM=rul_engine
 CENTRALIZED_PROGRAM=rul_turbofan
-TEST_PROGRAM_DIRECTORY=
 ISOLATED_ENGINE=2
-CPUS="1"
+TEST_PROGRAM_DIRECTORY=
+FAULTY=0
+FAULTY_CLIENT=0
 
 
 # Do not modify these variables
@@ -26,7 +28,7 @@ VOLUME_DATA=-v "$(ROOTDIR)/data:/usr/src/app/data"
 VOLUME_RESULTS=-v "$(ROOTDIR)/results:/usr/src/app/results"
 VOLUME_LOGS=-v "$(SRCDIR)/logs:/usr/src/app/logs"
 CPUS_FLAG=--cpus=$(CPUS)
-COMMON_FLAGS=--rm --shm-size 4G
+COMMON_FLAGS=--rm -d --shm-size 4G
 BASE_LOGS=$(SRCDIR)/logs
 LOGS_DIR=$(BASE_LOGS)/$(EXEC_TIME)
 
@@ -45,6 +47,8 @@ run: create_image create_network
 			$(CONTAINER_NETWORK) \
 			$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
 			--env PROGRAM_NAME=$(PROGRAM) \
+			--env FAULTY=$(FAULTY) \
+			--env FAULTY_CLIENT=$(FAULTY_CLIENT) \
 			--name fedadapt_server \
 			$(IMAGE) $(SCRIPT)_server 1>"$(LOGS_DIR)/server.log" 2>&1 &
 		@sleep 3
@@ -59,6 +63,8 @@ run: create_image create_network
 				$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
 				--env PROGRAM_NAME=$(PROGRAM) \
 				--env ENGINE=$${ENGINES[$$i]} \
+				--env FAULTY=$(FAULTY) \
+				--env FAULTY_CLIENT=$(FAULTY_CLIENT) \
 				--name fedadapt_client_$$i \
 				$(IMAGE) $(SCRIPT)_client 1>"$(LOGS_DIR)/client_$$i.log" 2>&1 & \
 			sleep 0.5; \
@@ -77,7 +83,7 @@ run_centralized: create_image
 			$(COMMON_FLAGS) \
 			$(CPUS_FLAG) \
 			$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
-			--name turbofan_$(CENTRALIZED_PROGRAM) \
+			--name turbofan_centralized \
 			--env ENGINE=$(ISOLATED_ENGINE) \
 			--env PROGRAM_NAME=$(CENTRALIZED_PROGRAM) \
 			-it \
@@ -89,8 +95,9 @@ test_model: create_image
 			$(COMMON_FLAGS) \
 			$(CPUS_FLAG) \
 			$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
+			--name test_model \
 			--env PROGRAM_NAME=test_model \
-			-it \
+			-it -d \
 			$(IMAGE) script_test_model $(TEST_PROGRAM_DIRECTORY)
 
 clean_resources:

@@ -39,14 +39,18 @@ def main():
     training_times = []
     validations = []
 
-
     model_config_path = os.path.join(config.home, "models/turbofan.yml")
     with open(model_config_path, "r") as f: 
         model_config = yaml.safe_load(f)
 
     frequency = model_config["dataset"]["frequency"]
+    faulty_directory = ""
+    if config.FAULTY:
+        faulty_directory = f"faulty_client={config.FAULTY_CLIENT}/"
     relative_program_directory = (
-        f"frequency={frequency}/program={config.PROGRAM_NAME}"
+        f"frequency={frequency}/"
+        f"{faulty_directory}"
+        f"program={config.PROGRAM_NAME}/"
     )
     program_directory = os.path\
         .join(config.evaluation_directory, relative_program_directory)
@@ -56,6 +60,7 @@ def main():
     training_time_path = os.path.join(program_directory, "training_time.json")
     validations_path = os.path.join(program_directory, "validations.json")
     persisted_model, neural = load_persisted_model(model_config, model_path)
+
     logger.info('Preparing Server.')
     creator = CreatorCNNEngine(model_config=model_config, neural_network=neural)
     nn_unit = creator.neural_network
@@ -71,7 +76,7 @@ def main():
         start = time.time()
         logger.info(f"Epoch {r}")
         server.train(min_clients=6)
-        server.aggregate("full_best_validation")
+        server.aggregate("validation_softmax")
         outputs, targets = server.validate()
         rmse, mae = compute_rmse_mae(outputs, targets)
         logger.info(f"Validate: RMSE {rmse}\tMAE {mae}")
@@ -89,7 +94,6 @@ def main():
             logger.info(f"Store candidate. Validation Results: {rmse}")
             file_model.file_store(model_path, candidate_model)
             persisted_model = candidate_model
-
     server.stop_server = True
 
 if __name__ == "__main__": 

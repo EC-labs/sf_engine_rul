@@ -44,8 +44,13 @@ def main():
         model_config = yaml.safe_load(f)
 
     frequency = model_config["dataset"]["frequency"]
+    faulty_directory = ""
+    if config.FAULTY:
+        faulty_directory = f"faulty_client={config.FAULTY_CLIENT}/"
     relative_program_directory = (
-        f"frequency={frequency}/program={config.PROGRAM_NAME}"
+        f"frequency={frequency}/"
+        f"{faulty_directory}"
+        f"program={config.PROGRAM_NAME}/"
     )
     program_directory = os.path\
         .join(config.evaluation_directory, relative_program_directory)
@@ -75,6 +80,7 @@ def main():
         outputs, targets = server.validate()
         rmse, mae = compute_rmse_mae(outputs, targets)
         logger.info(f"Validate: RMSE {rmse}\tMAE {mae}")
+
         end = time.time()
         training_times.append(end-start)
         persist_json(training_times, training_time_path)

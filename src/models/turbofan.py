@@ -375,6 +375,9 @@ class CreatorCNNEngine(FactoryModelDatasets):
         frequency = config_dataset["frequency"]
         validation_size = config_dataset["validation_size"]
         ENGINE = int(os.getenv("ENGINE", "2.0"))
+        FAULTY = bool(int(os.getenv("FAULTY", "0")))
+        FAULTY_CLIENT = int(os.getenv("FAULTY_CLIENT", "0"))
+        faulty = FAULTY and (ENGINE == FAULTY_CLIENT)
         logger_console.info(f"Client engine: {ENGINE}")
 
         df_turbofan, all_fc = read_in_data(
@@ -400,13 +403,14 @@ class CreatorCNNEngine(FactoryModelDatasets):
 
         dataset_train = EngineSimulationDataset(
             ENGINE, df_turbofan, stepsize_sample, all_variables_x,
-            considered_length, dict_training_flights
+            considered_length, dict_training_flights, faulty=faulty,
+            relative_noise=10,
         )
         train_minima, train_maxima = dataset_train.minima, dataset_train.maxima
         dataset_valid = EngineSimulationDataset(
             ENGINE, df_turbofan, stepsize_sample, all_variables_x,
             considered_length, dict_validation_flights, 
-            train_minima, train_maxima
+            train_minima, train_maxima,
         )
 
         neural_client = CNNRUL(config_model, "Client")
@@ -554,11 +558,22 @@ class TurbofanSimulationDataset(Dataset):
 class EngineSimulationDataset(TurbofanSimulationDataset):
 
 
-    def __init__(self, engine, all_data, *args, **kwargs):
+    def __init__(self, engine, all_data, *args, faulty=False, relative_noise=0.5, **kwargs):
         self.engine = engine
         all_data = all_data.loc[all_data["unit"] == engine, :].copy()
         super().__init__(all_data, *args, **kwargs)
-
+        if faulty == True:
+            self.add_noise(relative_noise)
+            
+    def add_noise(self, relative_noise): 
+        logger_console.info("Adding noise to engine data")
+        col_std = self.all_data.std()
+        assert isinstance(col_std, pd.Series)
+        for idx, std_dev in col_std.items(): 
+            nrows = len(self.all_data.loc[:, idx])
+            self.all_data.loc[:, idx] += np.random.normal(
+                0, std_dev*relative_noise, nrows
+            )
 
 def validate(neural, dataloader_validation): 
     import tqdm
@@ -650,12 +665,13 @@ def test_per_flight(neural, dataset_test, filepath):
             sum_ae += sum_absolute_error(err)
             sum_se += sum_squared_error(err)
             len_dataset += 1
+    with open(filepath, "w") as f: 
+        json.dump(dict_engine_ruls, f)
     mae = sum_ae/len_dataset
     mse = sum_se/len_dataset
     rmse = math.sqrt(mse)
     logger_console.info(f"Test RMSE: {rmse}\tMAE: {mae}")
-    with open(filepath, "w") as f: 
-        json.dump(dict_engine_ruls, f)
+    return rmse, mae
 
 def compute_rmse_mae(outputs, targets): 
     err = outputs-targets

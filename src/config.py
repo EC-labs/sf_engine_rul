@@ -9,6 +9,8 @@ LOG_LEVEL = os.getenv("LOG_LEVEL") or logging.INFO
 PROGRAM_NAME = os.getenv("PROGRAM_NAME") 
 if PROGRAM_NAME == None: 
     raise Exception()
+FAULTY = bool(int(os.getenv("FAULTY", "0")))
+FAULTY_CLIENT = int(os.getenv("FAULTY_CLIENT", "0"))
 
 logging.basicConfig(
     format='%(asctime)s [%(levelname)s]:%(name)s:%(threadName)s: %(message)s',
