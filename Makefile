@@ -8,7 +8,8 @@ CENTRALIZED_PROGRAM=rul_turbofan
 ISOLATED_ENGINE=2
 TEST_PROGRAM_DIRECTORY=
 FAULTY=0
-FAULTY_CLIENT=0
+FAULTY_CLIENT=[]
+NOISE_AMPLITUDE=10
 
 
 # Do not modify these variables
@@ -23,12 +24,12 @@ EXEC_TIME=$(shell date +'%Y-%m-%d_%H:%M:%S.%s')
 
 CONTAINER_LABELS=--label "$(GROUP_LABEL)"
 CONTAINER_NETWORK=--network $(NETWORK)
-COMMON_ENVIRONMENT=--env "NCLIENTS=$(NCLIENTS)"
+COMMON_ENVIRONMENT=--env "NCLIENTS=$(NCLIENTS)" --env "NOISE_AMPLITUDE=${NOISE_AMPLITUDE}"
 VOLUME_DATA=-v "$(ROOTDIR)/data:/usr/src/app/data"
 VOLUME_RESULTS=-v "$(ROOTDIR)/results:/usr/src/app/results"
 VOLUME_LOGS=-v "$(SRCDIR)/logs:/usr/src/app/logs"
 CPUS_FLAG=--cpus=$(CPUS)
-COMMON_FLAGS=--rm -d --shm-size 4G
+COMMON_FLAGS=--rm --shm-size 4G
 BASE_LOGS=$(SRCDIR)/logs
 LOGS_DIR=$(BASE_LOGS)/$(EXEC_TIME)
 
@@ -97,7 +98,6 @@ test_model: create_image
 			$(VOLUME_RESULTS) $(VOLUME_DATA) $(VOLUME_LOGS) \
 			--name test_model \
 			--env PROGRAM_NAME=test_model \
-			-it -d \
 			$(IMAGE) script_test_model $(TEST_PROGRAM_DIRECTORY)
 
 clean_resources:

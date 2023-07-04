@@ -44,14 +44,7 @@ def main():
     with open(model_config_path, "r") as f: 
         model_config = yaml.safe_load(f)
 
-    frequency = model_config["dataset"]["frequency"]
-    relative_program_directory = (
-        f"frequency={frequency}/program={config.PROGRAM_NAME}"
-    )
-    program_directory = os.path\
-        .join(config.evaluation_directory, relative_program_directory)
-    if not os.path.isdir(program_directory): 
-        os.makedirs(program_directory)
+    program_directory = config.evaluation_directory
     model_path = os.path.join(program_directory, "model.pkl")
     training_time_path = os.path.join(program_directory, "training_time.json")
     validations_path = os.path.join(program_directory, "validations.json")

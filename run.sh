@@ -1,7 +1,9 @@
 #! /bin/bash
 
 frequency=20
-faulty_client=5
+faulty_client='[5]'
+evaluation_directory="evaluation=2023-07-04"
+noise_amplitude=1
 
 
 check_server_status () {
@@ -73,7 +75,8 @@ run_faulty_distributed_scripts () {
             PROGRAM="$script" \
             NCLIENTS=6 \
             FAULTY=1 \
-            FAULTY_CLIENT=${faulty_client}
+            FAULTY_CLIENT="${faulty_client}"
+            NOISE_AMPLITUDE="${noise_amplitude}"
         echo "${script}"
         sleep 10
     done
@@ -95,7 +98,7 @@ test_models () {
 present_results () {
     for program in "$@"; do
         echo "${program}"
-        cat "results/evaluation=2023-04-06/${program}/test_metrics.json" |
+        cat "results/${evaluation_directory}/${program}/test_metrics.json" |
             jq
     done
 }

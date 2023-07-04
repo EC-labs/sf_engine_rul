@@ -4,13 +4,17 @@ import torch
 import numpy as np
 import logging
 import yaml
+import json
 
 LOG_LEVEL = os.getenv("LOG_LEVEL") or logging.INFO
 PROGRAM_NAME = os.getenv("PROGRAM_NAME") 
 if PROGRAM_NAME == None: 
     raise Exception()
-FAULTY = bool(int(os.getenv("FAULTY", "0")))
-FAULTY_CLIENT = int(os.getenv("FAULTY_CLIENT", "0"))
+FAULTY = bool(int(os.getenv("FAULTY", "0"))) if PROGRAM_NAME != "rul_turbofan" else False
+FAULTY_CLIENT = json.loads(os.getenv("FAULTY_CLIENT", "[]")) if FAULTY else []
+NOISE_AMPLITUDE = int(os.getenv("NOISE_AMPLITUDE", "0"))
+NCLIENTS = int(os.getenv("NCILENTS", "1"))
+ENGINE = int(os.getenv("ENGINE", "0"))
 
 logging.basicConfig(
     format='%(asctime)s [%(levelname)s]:%(name)s:%(threadName)s: %(message)s',
@@ -20,42 +24,33 @@ logging.basicConfig(
 SERVER_ADDR= 'fedadapt_server'
 SERVER_PORT = 51000
 
-dataset_name = 'CIFAR10'
 home = '/usr/src/app'
-dataset_path = os.path.join(home, "data/raw")
 
 runtime_config_file_path = os.path.join(home, "config.yml")
 with open(runtime_config_file_path, "r") as f: 
     runtime_config = yaml.safe_load(f)
 
-model_cfg = {
-    # (Type, in_channels, out_channels, kernel_size, out_size(c_out*h*w), flops(c_out*h*w*k*k*c_in))
-    'VGG5' : [
-        ('C', 3, 32, 3, 32*32*32, 32*32*32*3*3*3), 
-        ('M', 32, 32, 2, 32*16*16, 0), 
-        ('C', 32, 64, 3, 64*16*16, 64*16*16*3*3*32), 
-        ('M', 64, 64, 2, 64*8*8, 0), 
-        ('C', 64, 64, 3, 64*8*8, 64*8*8*3*3*64), 
-        ('D', 8*8*64, 128, 1, 64, 128*8*8*64), 
-        ('D', 128, 10, 1, 10, 128*10),
-    ]
-}
+model_config_path = os.path.join(home, "models/turbofan.yml")
+with open(model_config_path, "r") as f: 
+    model_config = yaml.safe_load(f)
 
-model_name = 'VGG5'
-model_size = 1.28
-model_flops = 32.902
-total_flops = 8488192
-split_layer = 2
-model_len = 7
+frequency = model_config["dataset"]["frequency"]
+dir_frequency = f"frequency={frequency}/"
+dir_faulty_client = f"faulty_client={FAULTY_CLIENT}/" if FAULTY else ""
+dir_noise = f"noise_amplitude={NOISE_AMPLITUDE}/" if FAULTY else ""
+dir_engine = f"engine={ENGINE}" if PROGRAM_NAME == "rul_turbofan_isolated" else ""
+dir_program = f"program={PROGRAM_NAME}/"
+
 results_dir = os.path.join(home, "results")
 evaluation_directory = os.path.join(
-    results_dir, runtime_config["evaluation_directory"]
+    results_dir, runtime_config["evaluation_directory"],
+    dir_frequency + dir_faulty_client + dir_noise + dir_program + dir_engine
 )
+print(evaluation_directory)
 if not os.path.isdir(evaluation_directory): 
-    os.mkdir(evaluation_directory)
+    os.makedirs(evaluation_directory)
 
-
-
+split_layer = 2
 R = runtime_config["epochs"]
 LR = runtime_config["learning_rate"]
 B = runtime_config["batch_size"]

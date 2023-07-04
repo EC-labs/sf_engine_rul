@@ -43,19 +43,7 @@ def main():
     with open(model_config_path, "r") as f: 
         model_config = yaml.safe_load(f)
 
-    frequency = model_config["dataset"]["frequency"]
-    faulty_directory = ""
-    if config.FAULTY:
-        faulty_directory = f"faulty_client={config.FAULTY_CLIENT}/"
-    relative_program_directory = (
-        f"frequency={frequency}/"
-        f"{faulty_directory}"
-        f"program={config.PROGRAM_NAME}/"
-    )
-    program_directory = os.path\
-        .join(config.evaluation_directory, relative_program_directory)
-    if not os.path.isdir(program_directory): 
-        os.makedirs(program_directory)
+    program_directory = config.evaluation_directory
     model_path = os.path.join(program_directory, "model.pkl")
     training_time_path = os.path.join(program_directory, "training_time.json")
     validations_path = os.path.join(program_directory, "validations.json")
@@ -75,7 +63,7 @@ def main():
     for r in range(config.R):
         start = time.time()
         logger.info(f"Epoch {r}")
-        server.train(min_clients=6)
+        server.train(min_clients=config.NCLIENTS)
         server.aggregate("validation_softmax")
         outputs, targets = server.validate()
         rmse, mae = compute_rmse_mae(outputs, targets)

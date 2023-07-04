@@ -376,8 +376,9 @@ class CreatorCNNEngine(FactoryModelDatasets):
         validation_size = config_dataset["validation_size"]
         ENGINE = int(os.getenv("ENGINE", "2.0"))
         FAULTY = bool(int(os.getenv("FAULTY", "0")))
-        FAULTY_CLIENT = int(os.getenv("FAULTY_CLIENT", "0"))
-        faulty = FAULTY and (ENGINE == FAULTY_CLIENT)
+        FAULTY_CLIENT = json.loads(os.getenv("FAULTY_CLIENT", "[]"))
+        NOISE_AMPLITUDE = int(os.getenv("NOISE_AMPLITUDE", "0"))
+        faulty = FAULTY and (ENGINE in FAULTY_CLIENT)
         logger_console.info(f"Client engine: {ENGINE}")
 
         df_turbofan, all_fc = read_in_data(
@@ -404,7 +405,7 @@ class CreatorCNNEngine(FactoryModelDatasets):
         dataset_train = EngineSimulationDataset(
             ENGINE, df_turbofan, stepsize_sample, all_variables_x,
             considered_length, dict_training_flights, faulty=faulty,
-            relative_noise=10,
+            relative_noise=NOISE_AMPLITUDE,
         )
         train_minima, train_maxima = dataset_train.minima, dataset_train.maxima
         dataset_valid = EngineSimulationDataset(
