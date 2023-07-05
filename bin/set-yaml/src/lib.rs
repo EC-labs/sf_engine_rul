@@ -46,48 +46,40 @@ enum ParseState {
 
 fn get_selector(yml: &mut Yaml, selector: Selector) -> Result<&mut Yaml, String> {
     let cloned_yml = yml.clone();
-    match selector {
-        Selector::Key(ref k) => {
-            match yml {
-                Yaml::Hash(h) => {
-                    let key = Yaml::String(k.to_string());
-                    match h.get_mut(&key) {
-                        Some(v) => Ok(v),
-                        None => {
-                            return Err(format!(
-                                "Key `{:?}` does not exist in current yaml structure:\n{:?}",
-                                selector, cloned_yml
-                            ));
-                        }
-                    }
-                },
-                _ => { 
-                    return Err(format!(
-                        "Cannot apply key on current yaml structure:\n{:?}", 
-                        cloned_yml
-                    ));
-                }
-            }
-        }, 
-        Selector::Index(i) => { 
-            match yml {
-                Yaml::Array(a) => match a.get_mut(i) {
-                    Some(v) => Ok(v),
-                    None => 
-                        return Err(format!(
-                            "Index `{:?}` does not exist in Array:\n{:?}", 
-                            selector, cloned_yml
-                        ))
-                },
-                _ => {
-                    return Err(format!(
-                        "Index cannot be applied to current yaml structure:\n{:?}",
-                        yml
-                    ));
-                }
-            }
-        }
+    let yaml_value = match (&selector, yml) {
+        (Selector::Key(ref k), Yaml::Hash(h)) => {
+            let key = Yaml::String(k.to_string());
+            h.get_mut(&key)
+        },
+        (Selector::Key(_), yml) => {
+            return Err(format!(
+                "Cannot apply key on current yaml structure:\n{:?}", 
+                yml
+            ));
+        },
+        (Selector::Index(i), Yaml::Array(a)) => a.get_mut(*i),
+        (Selector::Index(_), yml) => {
+            return Err(format!(
+                "Index cannot be applied to current yaml structure:\n{:?}",
+                yml 
+            ));
+        },
+    };
+    match (yaml_value, &selector, &cloned_yml) {
+        (Some(v), _, _) => Ok(v),
+        (None, Selector::Key(k), yml) => 
+            Err(format!("Key `{k}` does not exit in:\n{}", yaml_to_string(yml))),
+        // (None, Yaml::Array(_)) => 
+        (None, Selector::Index(i), yml) => 
+            Err(format!("Index `{i}` does not exit in:\n{}", yaml_to_string(yml))),
     }
+}
+
+fn yaml_to_string(yml: &Yaml) -> String {
+    let mut yaml_string = String::new();
+    let mut emitter = YamlEmitter::new(&mut yaml_string);
+    emitter.dump(yml).unwrap();
+    yaml_string
 }
 
 fn walk_selectors(yml: &mut yaml::Yaml, selectors: Vec<Selector>) -> Result<&mut yaml::Yaml, String> {
@@ -178,7 +170,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>>{
         .unwrap()
         .into_iter()
         .next()
-        .unwrap();
+        .unwrap_or_else(|| Yaml::String(String::new()));
 
     let selectors = parse_yaml_path(&config.key)?;
     let to_change = walk_selectors(&mut contents, selectors)?;
