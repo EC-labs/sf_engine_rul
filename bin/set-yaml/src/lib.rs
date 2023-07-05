@@ -180,10 +180,10 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>>{
     let to_change = walk_selectors(&mut contents, selectors)?;
 
     *to_change = new_value;
-    let mut out_str = String::new();
-    let mut emitter = YamlEmitter::new(&mut out_str);
+    let mut yaml_string = String::new();
+    let mut emitter = YamlEmitter::new(&mut yaml_string);
     emitter.dump(&contents).unwrap();
 
-    println!("{}", out_str);
+    fs::write(config.filename.as_str(), yaml_string)?;
     Ok(())
 }
