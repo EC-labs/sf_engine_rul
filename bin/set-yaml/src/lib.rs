@@ -44,52 +44,56 @@ enum ParseState {
     ReadingKey,
 }
 
-fn walk_selectors(yml: &mut yaml::Yaml, selectors: Vec<Selector>) -> Result<&mut yaml::Yaml, String> {
-    let mut value = yml; 
-    for selector in selectors.iter() {
-        let cloned_value = value.clone();
-        value = match selector {
-            Selector::Key(k) => {
-                match value {
-                    Yaml::Hash(h) => {
-                        let key = Yaml::String(k.to_string());
-                        match h.get_mut(&key) {
-                            Some(v) => v,
-                            None => {
-                                return Err(format!(
-                                    "Key `{:?}` does not exist in current yaml structure:\n{:?}",
-                                    selector, cloned_value
-                                ));
-                            }
-                        }
-                    },
-                    _ => { 
-                        return Err(format!(
-                            "Cannot apply key on current yaml structure:\n{:?}", 
-                            value
-                        ));
-                    }
-                }
-            }, 
-            Selector::Index(i) => { 
-                match value {
-                    Yaml::Array(a) => match a.get_mut(*i) {
-                        Some(v) => v,
-                        None => 
+fn get_selector(yml: &mut Yaml, selector: Selector) -> Result<&mut Yaml, String> {
+    let cloned_yml = yml.clone();
+    match selector {
+        Selector::Key(ref k) => {
+            match yml {
+                Yaml::Hash(h) => {
+                    let key = Yaml::String(k.to_string());
+                    match h.get_mut(&key) {
+                        Some(v) => Ok(v),
+                        None => {
                             return Err(format!(
-                                "Index `{:?}` does not exist in Array:\n{:?}", 
-                                selector, cloned_value
-                            ))
-                    },
-                    _ => {
-                        return Err(format!(
-                            "Index cannot be applied to current yaml structure:\n{:?}",
-                            cloned_value
-                        ));
+                                "Key `{:?}` does not exist in current yaml structure:\n{:?}",
+                                selector, cloned_yml
+                            ));
+                        }
                     }
+                },
+                _ => { 
+                    return Err(format!(
+                        "Cannot apply key on current yaml structure:\n{:?}", 
+                        cloned_yml
+                    ));
                 }
             }
-        };
+        }, 
+        Selector::Index(i) => { 
+            match yml {
+                Yaml::Array(a) => match a.get_mut(i) {
+                    Some(v) => Ok(v),
+                    None => 
+                        return Err(format!(
+                            "Index `{:?}` does not exist in Array:\n{:?}", 
+                            selector, cloned_yml
+                        ))
+                },
+                _ => {
+                    return Err(format!(
+                        "Index cannot be applied to current yaml structure:\n{:?}",
+                        yml
+                    ));
+                }
+            }
+        }
+    }
+}
+
+fn walk_selectors(yml: &mut yaml::Yaml, selectors: Vec<Selector>) -> Result<&mut yaml::Yaml, String> {
+    let mut value = yml; 
+    for selector in selectors.into_iter() {
+        value = get_selector(value, selector)?;
     }
     Ok(value)
 }
