@@ -13,7 +13,7 @@ if PROGRAM_NAME == None:
 FAULTY = bool(int(os.getenv("FAULTY", "0"))) if PROGRAM_NAME != "rul_turbofan" else False
 FAULTY_CLIENT = json.loads(os.getenv("FAULTY_CLIENT", "[]")) if FAULTY else []
 NOISE_AMPLITUDE = int(os.getenv("NOISE_AMPLITUDE", "0"))
-NCLIENTS = int(os.getenv("NCILENTS", "1"))
+NCLIENTS = int(os.getenv("NCLIENTS", "1"))
 ENGINE = int(os.getenv("ENGINE", "0"))
 
 logging.basicConfig(
@@ -46,7 +46,6 @@ evaluation_directory = os.path.join(
     results_dir, runtime_config["evaluation_directory"],
     dir_frequency + dir_faulty_client + dir_noise + dir_program + dir_engine
 )
-print(evaluation_directory)
 if not os.path.isdir(evaluation_directory): 
     os.makedirs(evaluation_directory)
 

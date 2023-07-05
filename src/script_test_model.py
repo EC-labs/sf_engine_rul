@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 def main(): 
     result_relative_model_directory = sys.argv[1] 
     directory_path = os.path\
-        .join(config.evaluation_directory, result_relative_model_directory)
+        .join(config.results_dir, result_relative_model_directory)
     model_path = os.path.join(directory_path, "model.pkl")
     try:
         persisted_model = file_model.file_load(model_path)

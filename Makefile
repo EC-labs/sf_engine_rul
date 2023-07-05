@@ -52,7 +52,7 @@ run: create_image create_network
 			--env FAULTY_CLIENT=$(FAULTY_CLIENT) \
 			--name fedadapt_server \
 			$(IMAGE) $(SCRIPT)_server 1>"$(LOGS_DIR)/server.log" 2>&1 &
-		@sleep 3
+		@sleep 2
 		ENGINES=(2 5 10 16 18 20); \
 		for i in $$(seq 0 $$(($(NCLIENTS) - 1))); do \
 			docker run \
@@ -68,7 +68,7 @@ run: create_image create_network
 				--env FAULTY_CLIENT=$(FAULTY_CLIENT) \
 				--name fedadapt_client_$$i \
 				$(IMAGE) $(SCRIPT)_client 1>"$(LOGS_DIR)/client_$$i.log" 2>&1 & \
-			sleep 0.5; \
+			sleep 10; \
 		done
 
 create_image: 

@@ -353,7 +353,6 @@ class CreatorCNNEngine(FactoryModelDatasets):
     def nn_server_create(self, split_layer): 
         config_turbofan = deepcopy(self.model_config)
         config_model = config_turbofan["models"][0]
-        config_model["split_layer"] = split_layer
         nn_server = CNNRUL(config_model, "Server")
         nn_server.load_state_dict(
             utils.split_weights_server(self.neural_network.state_dict(), nn_server.state_dict())
@@ -367,7 +366,6 @@ class CreatorCNNEngine(FactoryModelDatasets):
         config_turbofan = deepcopy(self.model_config)
         config_dataset = config_turbofan["dataset"]
         config_model = config_turbofan["models"][0]
-        config_model["split_layer"] = split_layer
         X_v_to_keep = config_dataset["X_v_to_keep"]
         X_s_to_keep = config_dataset["X_s_to_keep"]
         stepsize_sample = config_dataset["stepsize_sample"]
@@ -567,7 +565,9 @@ class EngineSimulationDataset(TurbofanSimulationDataset):
             self.add_noise(relative_noise)
             
     def add_noise(self, relative_noise): 
-        logger_console.info("Adding noise to engine data")
+        logger_console.info(
+            f"Adding noise to engine data. std: `{relative_noise}`"
+        )
         col_std = self.all_data.std()
         assert isinstance(col_std, pd.Series)
         for idx, std_dev in col_std.items(): 

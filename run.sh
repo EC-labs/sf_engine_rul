@@ -1,10 +1,11 @@
 #! /bin/bash
 
+# yaml configurations 
 frequency=20
-faulty_client='[5]'
-evaluation_directory="evaluation=2023-07-04"
-noise_amplitude=1
+evaluation_directory="evaluation=2023-07-05"
 
+# environment variables
+faulty_client='[5,\ 10]'
 
 check_server_status () {
     docker container inspect -f '{{.State.Status}}' "$1" 1>/dev/null 2>&1
@@ -16,8 +17,13 @@ wait_server_stop () {
     fi 
 
     echo "Waiting for $1"
+    total=$(( 0 ))
     while check_server_status "$1"; do
-        for i in {0..20}; do
+        hours=$(( total/3600 ))
+        minutes=$(( (total - hours*3600)/60 ))
+        seconds=$(( (total - hours*3600 - minutes*60) ))
+        printf "%02d:%02d:%02d = " $hours $minutes $seconds
+        for i in {0..5}; do
             printf "."
             sleep 1
             if check_server_status "$1"; then 
@@ -26,7 +32,8 @@ wait_server_stop () {
                 break
             fi 
         done
-        printf "\n"
+        total=$(( total + 5 ))
+        printf "\r\033[K"
     done
 }
 
@@ -34,7 +41,7 @@ run_centralized () {
     echo "Run centralized turbofan"
     wait_server_stop "run_centralized"
     make run_centralized \
-        CPUS=2 \
+        CPUS=12 \
         CENTRALIZED_PROGRAM="rul_turbofan"
     wait_server_stop "run_centralized"
 }
@@ -45,7 +52,7 @@ run_centralized_isolated () {
     temp_engines=(2 5 10 16 18 20)
     for engine in ${temp_engines}; do
         make run_centralized \
-            CPUS=2 \
+            CPUS=12 \
             CENTRALIZED_PROGRAM="rul_turbofan_isolated" \
             ISOLATED_ENGINE=${engine}
     done
@@ -75,10 +82,10 @@ run_faulty_distributed_scripts () {
             PROGRAM="$script" \
             NCLIENTS=6 \
             FAULTY=1 \
-            FAULTY_CLIENT="${faulty_client}"
+            FAULTY_CLIENT="${faulty_client}" \
             NOISE_AMPLITUDE="${noise_amplitude}"
         echo "${script}"
-        sleep 10
+        sleep 4
     done
     wait_server_stop "fedadapt_server"
 }
@@ -98,7 +105,7 @@ test_models () {
 present_results () {
     for program in "$@"; do
         echo "${program}"
-        cat "results/${evaluation_directory}/${program}/test_metrics.json" |
+        cat "results/${program}/test_metrics.json" |
             jq
     done
 }
