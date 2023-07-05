@@ -1,5 +1,5 @@
 use std::{fs, error::Error};
-use yaml_rust::{yaml, yaml::Yaml};
+use yaml_rust::{yaml, yaml::Yaml, YamlEmitter};
 
 
 pub struct Config {
@@ -44,9 +44,10 @@ enum ParseState {
     ReadingKey,
 }
 
-fn walk_selectors(mut yml: yaml::Yaml, selectors: Vec<Selector>) -> Result<yaml::Yaml, String> {
-    let mut value = &mut yml; 
+fn walk_selectors(yml: &mut yaml::Yaml, selectors: Vec<Selector>) -> Result<&mut yaml::Yaml, String> {
+    let mut value = yml; 
     for selector in selectors.iter() {
+        let cloned_value = value.clone();
         value = match selector {
             Selector::Key(k) => {
                 match value {
@@ -56,7 +57,8 @@ fn walk_selectors(mut yml: yaml::Yaml, selectors: Vec<Selector>) -> Result<yaml:
                             Some(v) => v,
                             None => {
                                 return Err(format!(
-                                    "Key does not exist in current yaml structure:",
+                                    "Key `{:?}` does not exist in current yaml structure:\n{:?}",
+                                    selector, cloned_value
                                 ));
                             }
                         }
@@ -75,20 +77,21 @@ fn walk_selectors(mut yml: yaml::Yaml, selectors: Vec<Selector>) -> Result<yaml:
                         Some(v) => v,
                         None => 
                             return Err(format!(
-                                "Index does not exist in Array:\n", 
+                                "Index `{:?}` does not exist in Array:\n{:?}", 
+                                selector, cloned_value
                             ))
                     },
                     _ => {
                         return Err(format!(
                             "Index cannot be applied to current yaml structure:\n{:?}",
-                            value
+                            cloned_value
                         ));
                     }
                 }
             }
         };
     }
-    Ok(yml)
+    Ok(value)
 }
 
 fn parse_yaml_path(path: &str) -> Result<Vec<Selector>, &'static str> {
@@ -167,17 +170,20 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>>{
         .into_iter()
         .next()
         .unwrap();
-    // let contents = & mut contents;
-    //println!("{:?}", contents);
-    // match contents {
-    //     Yaml::Hash(ref mut h) => {
-    //         let k = Yaml::String(String::from("batch_size"));
-    //         let v = Yaml::Integer(20);
-    //         h.insert(k, v);
-    //     },
-    //     _ => println!("---2---")
-    // }
+    let new_value = yaml::YamlLoader::load_from_str(config.value.as_str())
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+
     let selectors = parse_yaml_path(&config.key)?;
-    walk_selectors(contents, selectors)?;
+    let to_change = walk_selectors(&mut contents, selectors)?;
+
+    *to_change = new_value;
+    let mut out_str = String::new();
+    let mut emitter = YamlEmitter::new(&mut out_str);
+    emitter.dump(&contents).unwrap();
+
+    println!("{}", out_str);
     Ok(())
 }

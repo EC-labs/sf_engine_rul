@@ -9,7 +9,7 @@ fn main() {
         std::process::exit(1);
     });
     set_yaml::run(config).unwrap_or_else(|e| {
-        eprintln!("{:?}", e);
+        eprintln!("{}", e);
         std::process::exit(1);
     });
 
