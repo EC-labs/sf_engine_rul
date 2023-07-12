@@ -29,7 +29,8 @@ wait_server_stop () {
             if check_server_status "$1"; then 
                 continue
             else
-                break
+                printf "\n"
+                return
             fi 
         done
         total=$(( total + 5 ))
@@ -94,16 +95,17 @@ test_models () {
     for test_program_directory in "$@"; do
         wait_server_stop "test_model"
         make test_model \
-            CPUS=4 \
+            CPUS=12 \
             TEST_PROGRAM_DIRECTORY="${test_program_directory}"
         echo $test_program_directory
-        sleep 10
+        sleep 1
     done
     wait_server_stop "test_model"
 }
 
 present_results () {
     for program in "$@"; do
+        program="$(sed 's/\\//g' <<< "${program}")"
         echo "${program}"
         cat "results/${program}/test_metrics.json" |
             jq
@@ -114,7 +116,7 @@ add_centralized_isolated () {
     local -n temp_engines="$1"
     local -n temp_models="$2"
     for engine in "${temp_engines[@]}"; do
-        temp_models+=("frequency=${frequency}/program=rul_turbofan_isolated/engine=${engine}")
+        temp_models+=("${evaluation_directory}/frequency=${frequency}/program=rul_turbofan_isolated/engine=${engine}")
     done
 }
 
@@ -122,7 +124,7 @@ add_distributed () {
     local -n temp_distributed_programs="$1"
     local -n temp_models="$2"
     for program in "${distributed_programs[@]}"; do
-        temp_models+=("frequency=${frequency}/program=${program}")
+        temp_models+=("${evaluation_directory}/frequency=${frequency}/program=${program}")
     done
 
 }
@@ -131,32 +133,47 @@ add_distributed_faulty () {
     local -n temp_distributed_programs="$1"
     local -n temp_models="$2"
     for program in "${distributed_programs[@]}"; do
-        temp_models+=("frequency=${frequency}/faulty_client=${faulty_client}/program=${program}")
+        temp_models+=("${evaluation_directory}/frequency=${frequency}/faulty_client=${faulty_client}/noise_amplitude=${noise_amplitude}/program=${program}")
     done
 
 }
 
+./bin/set-yaml/target/debug/set-yaml \
+    "src/config.yml" \
+    "evaluation_directory" \
+    "${evaluation_directory}"
+
+./bin/set-yaml/target/debug/set-yaml \
+    "src/models/turbofan.yml" \
+    "dataset.frequency" \
+    "${frequency}"
+
 distributed_programs=(
+    "rul_engine"    
     "random_best"    
     "random_softmax"
     "full_best"
     "full_softmax"
-    "rul_engine"    
 )
 engines=(2 5 10 16 18 20)
 
 models_directory=(
     "frequency=${frequency}/program=rul_turbofan"
 )
-add_centralized_isolated  engines  models_directory
-add_distributed  distributed_programs  models_directory
-add_distributed_faulty  distributed_programs  models_directory
-printf "%s\n" "${models_directory[@]}"
 
-run_centralized 
-run_centralized_isolated
-run_distributed_scripts "${distributed_programs[@]}"
-run_faulty_distributed_scripts "${distributed_programs[@]}"
+noise_array=( 0 1 2 3 4 5 6 7 8 9 10 ) # available noise
+for noise_amplitude in "${noise_array[@]}"; do
+    echo "${noise_amplitude}"
+    printf "\n\n"
+    add_centralized_isolated  engines  models_directory
+    add_distributed  distributed_programs  models_directory
+    add_distributed_faulty  distributed_programs  models_directory
+
+    run_centralized 
+    run_centralized_isolated
+    run_distributed_scripts "${distributed_programs[@]}"
+    run_faulty_distributed_scripts "${distributed_programs[@]}"
+done;
 
 test_models "${models_directory[@]}"
 present_results "${models_directory[@]}"
